@@ -6,7 +6,7 @@
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
     fb: '', fbGif: null, gifFor: null, gifQuery: '', resend: null, busy: null, loading: false, error: '',
     gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false };
-  let lastKey = '', countT = null, toastT = null;
+  let lastKey = '', lastScreenKey = '', countT = null, toastT = null;
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -188,18 +188,23 @@
   // ---- render ---------------------------------------------------------
   function render() {
     const scr = $('screen');
-    const key = !S.me ? 'signin' + U.gateOk + U.booted : U.view + '|' + U.ms + '|' + (current() || {}).id;
-    const same = key === lastKey;
-    lastKey = key;
+    // screen = which page; key = page + selected task. Picking another task only animates the right pane.
+    const screenKey = !S.me ? 'signin' + U.gateOk + U.booted : U.view + '|' + U.ms;
+    const key = screenKey + '|' + (S.me ? (current() || {}).id : '');
+    const same = key === lastKey, sameScreen = screenKey === lastScreenKey;
+    lastKey = key; lastScreenKey = screenKey;
     const keepScroll = same && scr.querySelector('.card') ? scr.querySelector('.card').scrollTop : 0;
+    const listScroll = sameScreen && scr.querySelector('.list') ? scr.querySelector('.list').scrollTop : 0;
     if (!S.me) { scr.innerHTML = signinScreen(); Bucky.setPose('signin'); }
     else if (U.view === 'progress') { scr.innerHTML = progressScreen(); Bucky.setPose('progress'); if (!same) countUp(); else $('hero').textContent = S.avg + '%'; }
     else { scr.innerHTML = workScreen(); Bucky.setPose('peek'); }
-    scr.classList.toggle('calm', same);
+    scr.classList.toggle('calm', sameScreen);
     const card = scr.querySelector('.card');
-    if (card && keepScroll) card.scrollTop = keepScroll;
+    if (card) { card.classList.toggle('fresh', sameScreen && !same); if (keepScroll) card.scrollTop = keepScroll; }
+    const list = scr.querySelector('.list');
+    if (list && listScroll) list.scrollTop = listScroll;
     const selRow = scr.querySelector('.row.sel');
-    if (selRow && !same) selRow.scrollIntoView({ block: 'nearest' });
+    if (selRow && !sameScreen) selRow.scrollIntoView({ block: 'nearest' });
     const det = scr.querySelector('details');
     if (det && U.histOpen) det.open = true;
     chip();
@@ -260,7 +265,7 @@
     }
   }
 
-  function signedOut() { API.store.set('bucky.token', null); S = { me: null }; lastKey = ''; }
+  function signedOut() { API.store.set('bucky.token', null); S = { me: null }; lastKey = ''; lastScreenKey = ''; }
 
   async function publish(t) {
     const picks = U.picks[t.id] || {};

@@ -144,6 +144,8 @@ summary{cursor:pointer}
 .blob{animation:wob 1.1s ease-in-out infinite}
 /* a re-render of the same screen (file picked, status changed) skips the entry motion */
 .calm .k,.calm .rise,.calm .pin,.calm .rowin,.calm .bar,.calm .tile{animation:none;opacity:1;transform:none}
+/* another task picked on the same page: only the detail pane comes in */
+.calm .card.fresh{opacity:0;animation:fadein .5s cubic-bezier(.2,.9,.2,1) forwards;animation-delay:0s!important}
 button{transition:transform .45s cubic-bezier(.3,1.7,.45,1),box-shadow .3s ease,filter .2s ease}
 button:not(:disabled):hover{transform:translateY(-2px);filter:brightness(1.12)}
 button:not(:disabled):active{transform:scale(.96,.9);transition-duration:.08s}
