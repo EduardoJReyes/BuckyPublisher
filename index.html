@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bucky Publisher</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="config.js"></script>
+</head>
+<body>
+<div id="stage">
+<svg width="0" height="0" aria-hidden="true" style="position: absolute"><defs>
+<filter id="liquid" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+<feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"></feGaussianBlur>
+<feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -10" result="goo"></feColorMatrix>
+<feGaussianBlur in="goo" stdDeviation="5" result="soft"></feGaussianBlur>
+<feSpecularLighting in="soft" surfaceScale="7" specularConstant="1.05" specularExponent="26" lighting-color="#FFFCF2" result="spec"><fePointLight x="760" y="-60" z="260"></fePointLight></feSpecularLighting>
+<feComposite in="spec" in2="goo" operator="in" result="shine"></feComposite>
+<feComposite in="goo" in2="shine" operator="arithmetic" k1="0" k2="1" k3="0.75" k4="0"></feComposite>
+</filter>
+</defs></svg>
+<div aria-hidden="true" id="bucky" style="position: absolute; left: 0; top: 0; width: 1280px; height: 800px; transform-origin: 0 0; pointer-events: none">
+<div aria-hidden="true" style="position: absolute; inset: 0; filter: url(#liquid)">
+<div class="g" data-piece="0"></div><div class="g" data-piece="1"></div><div class="g" data-piece="2"></div><div class="g" data-piece="3"></div><div class="g" data-piece="4"></div><div class="g" data-piece="5"></div><div class="g" data-piece="6"></div>
+<div class="g g2" style="left: 1010px; top: 250px; width: 190px; height: 190px"></div>
+<div class="g g3" style="left: 820px; top: 300px; width: 150px; height: 150px"></div>
+<div class="g g2" style="left: 1080px; top: 110px; width: 120px; height: 120px"></div>
+<div class="face" style="left: 832px; top: 108px; width: 330px; height: 220px">
+<div class="facevis" data-head="ears">
+<svg width="330" height="220" viewBox="0 0 330 220" aria-hidden="true">
+<defs><radialGradient id="earg" cx="35%" cy="30%" r="80%"><stop offset="0%" stop-color="#F7A27E"></stop><stop offset="45%" stop-color="#EB5E28"></stop><stop offset="100%" stop-color="#B9441A"></stop></radialGradient></defs>
+<g data-part="earL"><polygon points="25,130 125,55 10,10" fill="url(#earg)"></polygon></g>
+<g data-part="earR"><polygon points="305,130 205,55 320,10" fill="url(#earg)"></polygon></g>
+</svg>
+</div>
+</div>
+<div class="g gd" style="left: 960px; top: 330px; width: 70px; height: 70px"></div>
+<div class="g gd2" style="left: 1090px; top: 360px; width: 54px; height: 54px"></div>
+<div class="g g1 sat" style="left: 1150px; top: 90px; width: 170px; height: 170px"></div>
+<div class="g g2 sat" style="left: 760px; top: 520px; width: 150px; height: 150px"></div>
+<div class="g g3 sat" style="left: 1150px; top: 470px; width: 190px; height: 190px"></div>
+<div class="g g2 sat" style="left: 980px; top: 600px; width: 120px; height: 120px"></div>
+<div class="g g3 sat" style="left: 760px; top: 110px; width: 110px; height: 110px"></div>
+<div class="g g1 sat" style="left: 1230px; top: 330px; width: 110px; height: 110px"></div>
+</div>
+<div class="face" aria-hidden="true" style="left: 877px; top: 188px; width: 240px; height: 140px">
+<div class="facevis" data-head="face">
+<svg width="240" height="140" viewBox="0 0 240 140" aria-hidden="true" style="overflow: visible">
+<defs>
+<radialGradient id="cream" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#FFFFFF"></stop><stop offset="45%" stop-color="#FFFCF2"></stop><stop offset="100%" stop-color="#CCC5B9"></stop></radialGradient>
+<linearGradient id="nose" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#B9441A"></stop><stop offset="100%" stop-color="#EB5E28"></stop></linearGradient>
+<radialGradient id="ink" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#5A544D"></stop><stop offset="55%" stop-color="#1A1917"></stop><stop offset="100%" stop-color="#0D0C0B"></stop></radialGradient>
+<filter id="gloss" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+<feGaussianBlur in="SourceAlpha" stdDeviation="3" result="a"></feGaussianBlur>
+<feSpecularLighting in="a" surfaceScale="4" specularConstant="1" specularExponent="24" lighting-color="#FFFFFF" result="spec"><fePointLight x="40" y="-40" z="120"></fePointLight></feSpecularLighting>
+<feComposite in="spec" in2="SourceAlpha" operator="in" result="shine"></feComposite>
+<feComposite in="SourceGraphic" in2="shine" operator="arithmetic" k1="0" k2="1" k3="0.6" k4="0"></feComposite>
+</filter>
+</defs>
+<g data-part="inL"><polyline points="-7.3,20.8 -15.5,-45.2 47.7,-20.5" transform="translate(8.3 -15) rotate(110) scale(0.6) translate(-8.3 15)" opacity="0.2" fill="none" stroke="#B9441A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline></g>
+<g data-part="inR"><polyline points="247.3,20.8 255.5,-45.2 192.3,-20.5" transform="translate(231.7 -15) rotate(-110) scale(0.6) translate(-231.7 15)" opacity="0.2" fill="none" stroke="#B9441A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline></g>
+<g filter="url(#gloss)">
+<g data-part="eyeL"><ellipse cx="50.3" cy="42" rx="43.2" ry="38.4" fill="url(#cream)"></ellipse><circle cx="33.5" cy="34.8" r="4.5" fill="url(#ink)"></circle></g>
+<g data-part="eyeR"><ellipse cx="189.7" cy="42" rx="43.2" ry="38.4" fill="url(#cream)"></ellipse><circle cx="212.5" cy="27.6" r="4.5" fill="url(#ink)"></circle></g>
+</g>
+<g data-part="mouth"><polygon points="120,89.5 190.5,108 120,126.5 49.5,108" fill="url(#cream)"></polygon>
+<line x1="77.7" y1="100.6" x2="77.7" y2="115.4" stroke="#EB5E28" stroke-width="2.5"></line>
+<line x1="105.9" y1="93.2" x2="105.9" y2="122.8" stroke="#EB5E28" stroke-width="2.5"></line>
+<line x1="134.1" y1="93.2" x2="134.1" y2="122.8" stroke="#EB5E28" stroke-width="2.5"></line>
+<line x1="162.3" y1="100.6" x2="162.3" y2="115.4" stroke="#EB5E28" stroke-width="2.5"></line></g>
+
+
+<g data-part="nose"><polygon opacity="0.3" points="113.5,57 126.5,57 120,66" fill="url(#nose)" stroke="url(#nose)" stroke-width="4" stroke-linejoin="round"></polygon></g>
+</svg>
+</div>
+</div>
+</div>
+
+
+
+<div id="screen"></div>
+<div id="toast"></div>
+<div id="chip" class="chip"></div>
+</div>
+<script src="gifs.js"></script>
+<script src="bucky.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
