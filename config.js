@@ -1,3 +1,2 @@
-// Paste the Apps Script web app URL here after deploying backend/Code.gs
-// (Deploy > New deployment > Web app). It ends in /exec.
-window.BUCKY_API = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
+// The Apps Script web app URL (Deploy > Manage deployments). It ends in /exec.
+window.BUCKY_API = 'https://script.google.com/macros/s/AKfycbwJPhu1iQJiLXV94HUiJ5u29soa14DXn79HTbbxH8i7YexQXEPPpLbEs0TetaVJETrLaw/exec';
