@@ -67,3 +67,10 @@ backend/Code.gs                 the Apps Script backend
 dev/gas-mock.js, fixture.js     fake Google for ?mock and the tests
 tests/backend.test.js           node tests/backend.test.js
 ```
+
+## Performance
+
+Bucky's goo is drawn with WebGL (`bucky.js`), which matches the old SVG filter look but runs on the graphics card. The old SVG version (`bucky-legacy.js`) is still there as a fallback for browsers without WebGL.
+
+- `?fps` shows a frame counter in the corner.
+- `?legacy` forces the old SVG goo, to compare.
