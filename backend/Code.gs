@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.1.2';
+var VERSION = '1.2.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -78,6 +78,7 @@ function handle(req) {
     case 'state': return { state: state(me) };
     case 'logout': PropertiesService.getScriptProperties().deleteProperty('tok_' + req.token); return {};
     case 'start': return withLock(function () { return start(me, req.taskId); });
+    case 'unstart': return withLock(function () { return unstart(me, req.taskId); });
     case 'beginUpload': return withLock(function () { return beginUpload(me, req); });
     case 'chunk': return chunk(req);
     case 'finishUpload': return withLock(function () { return finishUpload(me, req); });
@@ -147,7 +148,7 @@ function loadData() {
     var name = r['Name'] || String(r['Full name'] || '').split(' ')[0];
     if (!name) return;
     team[name.toLowerCase()] = { key: name.toLowerCase(), name: name, full: r['Full name'] || name, role: r['Role'] || '',
-      email: String(r['Gmail'] || '').toLowerCase(), discord: r['Discord ID'] || '', password: r['Password'] || '' };
+      email: String(r['Gmail'] || '').toLowerCase(), discord: r['Discord ID'] || '', discordName: String(r['Discord username'] || '').replace(/^@/, ''), password: r['Password'] || '' };
   });
   var milestones = tab('Milestones').rows.filter(function (r) { return r['Milestone']; }).map(function (r) {
     return { id: r['Milestone'], name: r['Name'] || r['Milestone'], start: parseDate(r['Start']), end: parseDate(r['End']) };
@@ -328,7 +329,9 @@ function filesFor(D, t) {
 function mention(D, key) {
   var p = D.team[key];
   if (!p) return '';
-  return p.discord ? '<@' + p.discord + '>' : '@' + p.name;
+  // A real ping needs the numeric Discord ID; a username alone shows as text
+  if (/^\d{5,}$/.test(String(p.discord))) return '<@' + p.discord + '>';
+  return '@' + (p.discordName || p.name);
 }
 
 function channelFor(D, t) {
@@ -394,6 +397,15 @@ function start(me, id) {
   writeTask(D, t, objOf(COL.status, STATUS.prog, COL.updated, stamp()));
   var who = D.team[me].name, msg = who + ' started ' + t.name + '.';
   addLog(t, t.version, who, t.status, STATUS.prog, '', discord(D, t, [], msg));
+  return done(me, { mention: '', text: msg });
+}
+
+function unstart(me, id) {
+  var D = loadData(), t = fresh(D, id, [STATUS.prog]);
+  if (!isOwner(t, me)) fail('Only the task\'s owner can do that.');
+  writeTask(D, t, objOf(COL.status, STATUS.todo, COL.updated, stamp()));
+  var who = D.team[me].name, msg = who + ' moved ' + t.name + ' back to To do.';
+  addLog(t, t.version, who, t.status, STATUS.todo, '', discord(D, t, [], msg));
   return done(me, { mention: '', text: msg });
 }
 
@@ -506,6 +518,7 @@ function fmtDay(d) { return d ? d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr',
 function historyText(e) {
   var v = vtag(e.version);
   if (e.from === STATUS.todo && e.to === STATUS.prog) return e.who + ' started the task';
+  if (e.from === STATUS.prog && e.to === STATUS.todo) return e.who + ' moved it back to To do';
   if (e.from === STATUS.review && e.to === STATUS.review) return e.who + ' re-sent ' + v;
   if (e.to === STATUS.review) return e.who + ' sent ' + v;
   if (e.to === STATUS.done) return e.who + ' approved ' + v;
@@ -548,5 +561,8 @@ function state(me) {
       mine: mine, inQueue: inQueue, files: inQueue ? filesFor(D, t) : null
     });
   });
-  return { me: { key: p.key, name: p.name, full: p.full }, isReviewer: reviewer, milestones: milestones, avg: avg, tasks: tasks, backend: VERSION };
+  var S = settings();
+  var links = [['One Page', 'PITCH', 'Link: One Page'], ['Bucky Bible', 'GAME DESIGN DOC', 'Link: Bucky Bible'], ['Discord server', 'CHAT', 'Link: Discord server']]
+    .map(function (l) { return { label: l[0], kind: l[1], url: /^https?:\/\//.test(S[l[2]] || '') ? S[l[2]] : '' }; });
+  return { me: { key: p.key, name: p.name, full: p.full }, isReviewer: reviewer, milestones: milestones, avg: avg, tasks: tasks, links: links, backend: VERSION };
 }

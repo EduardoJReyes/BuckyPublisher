@@ -101,3 +101,14 @@ assert.equal(tm.filter((m) => m.title).length, 1, 'post opened once');
 assert.ok(tm.slice(1).every((m) => m.thread === tm[0].thread), 'later messages reply in the same post');
 assert.ok(mockDiscord.some((m) => m.hook === 'https://discord.com/api/webhooks/test/characters' && m.title === '2.1 \u00b7 Bucky design (Sketchs, Color, Poses)'));
 console.log('backend: all good,', mockDiscord.length, 'Bucky messages');
+
+// move back to To do, usernames in Discord text, docs links
+login('eduardojosereyesperez@gmail.com');
+ok('start', { taskId: '1.2' });
+let st2 = ok('unstart', { taskId: '1.2' }).state;
+assert.equal(task(st2, '1.2').status, 'To do');
+assert.equal(task(st2, '1.2').log[0].text, 'Eduardo moved it back to To do');
+bad('unstart', { taskId: '1.2' }, /Someone changed it/);
+assert.ok(mockDiscord.some((m) => /@hir0roo/.test(m.content)), 'Luna tagged by Discord username');
+assert.deepEqual(st2.links.map((l) => !!l.url), [true, true, false]);
+console.log('backend: extra checks good');

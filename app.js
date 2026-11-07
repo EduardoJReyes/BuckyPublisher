@@ -16,6 +16,16 @@
   const names = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' & ' + a[a.length - 1] : a.join(''));
   const kinetic = (txt, delay) => '<span class="k" style="animation-delay:' + (delay || 0) + 'ms">' + esc(txt) + '</span>';
   const blobs = (txt) => '<span class="busy"><span class="loader" aria-hidden="true"><i></i><i></i><i></i></span>' + txt + '</span>';
+  // "DUE 4 NOV · 3 DAYS LEFT" / "DUE TODAY" / "2 DAYS LATE"
+  const dueText = (t) => {
+    let out = 'DUE ' + esc(t.due).toUpperCase();
+    if (!t.dueIso || t.status === 'Approved') return out;
+    const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+    const d1 = new Date(t.dueIso); d1.setHours(0, 0, 0, 0);
+    const n = Math.round((d1 - d0) / 864e5);
+    return out + ' \u00b7 ' + (n > 1 ? n + ' DAYS LEFT' : n === 1 ? '1 DAY LEFT' : n === 0 ? 'TODAY' : (-n) + (n === -1 ? ' DAY' : ' DAYS') + ' LATE');
+  };
+  const isLate = (t) => { if (!t.dueIso || t.status === 'Approved' || t.status === 'Pending review') return false; const d0 = new Date(); d0.setHours(0, 0, 0, 0); return new Date(t.dueIso) < d0; };
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
   const mb = (b) => (b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -63,6 +73,7 @@
     return '<nav><button class="nav ' + (U.view === 'progress' ? 'on' : '') + '" data-act="view" data-v="progress">MILESTONES</button>' +
       '<button class="nav ' + (U.view === 'tasks' ? 'on' : '') + '" data-act="view" data-v="tasks">MY TASKS ' + open + '</button>' +
       (S.isReviewer ? '<button class="nav ' + (U.view === 'review' ? 'on' : '') + '" data-act="view" data-v="review">TO REVIEW ' + queue().length + '</button>' : '') +
+      '<button class="nav ' + (U.view === 'docs' ? 'on' : '') + '" data-act="view" data-v="docs">DOCS</button>' +
       '</nav>';
   }
 
@@ -114,7 +125,8 @@
     }
     if (isPending) {
       h += '<div class="field" style="gap:6px"><span class="big">Sent.</span><span class="muted">Waiting for ' + esc(names(t.reviewers)) + '. Bucky will ping you on Discord when it\u2019s reviewed.</span></div>';
-      if (U.resend !== t.id) h += '<button class="link" data-act="resend">Made a mistake? Send it again</button>';
+      if (U.resend !== t.id) h += '<div><button class="outline" data-act="resend">Update what I sent</button></div>';
+      else h += '<span class="muted" style="font-size:15px">Replace what\u2019s wrong and send it again. It stays the same version, and the reviewer gets told to look at the new one.</span>';
     }
     if (t.status === 'Approved') h += '<div class="field" style="gap:6px"><span class="big" style="color:var(--orange)">Approved.</span><span class="muted">Nothing left to do here.</span></div>';
     if (t.status === 'To do') {
@@ -132,12 +144,14 @@
       });
       if (!noFiles && !U.noteOpen) h += '<button class="link" data-act="note">+ Add a note</button>';
       if (noFiles || U.noteOpen) {
-        h += '<div class="field"><label class="lbl" for="note">' + (noFiles ? 'WHERE CAN THE REVIEWER FIND IT?' : 'NOTE FOR THE REVIEWER') + '</label>' +
+        h += '<div class="field"><label class="lbl" for="note">' + (noFiles ? 'COMMENT' : 'NOTE FOR THE REVIEWER') + '</label>' +
           '<textarea id="note" rows="2">' + esc(U.note) + '</textarea>' + gifRow('note') + '</div>';
       }
       const ready = !busy && (noFiles ? !!U.note.trim() : missing === 0);
       const lbl = busy ? (U.finishing ? blobs('Finishing') : up ? blobs('Uploading ' + pctOf(sum(up.done), up.total) + '%') : blobs('Sending')) : (!noFiles && missing) ? plural(missing, 'file missing', 'files missing') : isPending ? 'Send again' : noFiles ? 'Send for review' : 'Publish for review';
-      h += '<div><button class="btn primary" id="publish" data-act="publish" data-nofiles="' + (noFiles ? 1 : 0) + '" data-missing="' + missing + '" ' + (ready ? '' : 'disabled') + '>' + lbl + '</button></div>';
+      h += '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="btn primary" id="publish" data-act="publish" data-nofiles="' + (noFiles ? 1 : 0) + '" data-missing="' + missing + '" ' + (ready ? '' : 'disabled') + '>' + lbl + '</button>' +
+        (isPending && !busy ? '<button class="link" style="align-self:center" data-act="noresend">Cancel</button>' : '') +
+        (t.status === 'In progress' && !busy ? '<button class="link" style="align-self:center;color:var(--stone)" data-act="unstart">' + (U.busyAct === 'unstart' ? blobs('Moving') : 'Started by mistake? Move back to To do') + '</button>' : '') + '</div>';
     }
     h += historyBlock(t) + '</div>';
     return h;
@@ -172,15 +186,24 @@
     return h;
   }
 
+  function docsScreen() {
+    const links = S.links || [];
+    return '<div class="grid">' + nav() + '<div style="grid-column:1/span 12;height:24px"></div>' +
+      '<h1 class="z" style="grid-column:1/span 8;margin-top:6px;font-size:96px" aria-label="Docs">' + kinetic('Docs') + '</h1>' +
+      '<div class="docs z">' + links.map((l, i) => l.url
+        ? '<a class="glass doc pin" href="' + esc(l.url) + '" target="_blank" rel="noopener" style="animation-delay:' + (250 + i * 120) + 'ms"><span class="lbl">' + esc(l.kind) + '</span><span class="docname">' + esc(l.label) + '</span><span class="arrow" aria-hidden="true">&#8599;</span></a>'
+        : '<div class="glass doc off pin" style="animation-delay:' + (250 + i * 120) + 'ms"><span class="lbl">NOT SET YET</span><span class="docname">' + esc(l.label) + '</span><span class="muted" style="font-size:13px">Add the link in the Settings tab of the sheet</span></div>').join('') + '</div></div>';
+  }
+
   function workScreen() {
     const l = list(), t = current(), isTasks = U.view === 'tasks';
     const ms = (S.milestones || []).find((m) => m.id === U.ms);
     const title = isTasks ? (ms ? ms.name : U.ms) : 'To review';
     const rows = l.map((x) => '<button class="row ' + (t && x.id === t.id ? 'sel' : '') + '" data-act="sel" data-id="' + esc(x.id) + '">' +
       '<span class="top"><span class="nm">' + esc(x.name) + '</span>' + pill(x.status) + '</span>' +
-      '<span class="sub ' + (x.status === 'Retake' ? 'hot' : '') + '">' + (isTasks ? 'DUE ' + esc(x.due).toUpperCase() + (x.version ? ' \u00b7 ' + x.vtag : '') : 'FROM ' + esc(x.owners).toUpperCase() + ' \u00b7 ' + x.vtag + ' \u00b7 DUE ' + esc(x.due).toUpperCase()) + '</span></button>').join('');
+      '<span class="sub ' + (x.status === 'Retake' || isLate(x) ? 'hot' : '') + '">' + (isTasks ? dueText(x) + (x.version ? ' \u00b7 ' + x.vtag : '') : 'FROM ' + esc(x.owners).toUpperCase() + ' \u00b7 ' + x.vtag + ' \u00b7 ' + dueText(x)) + '</span></button>').join('');
     return '<div class="grid">' + nav() +
-      (isTasks ? '<button class="link mono z" style="grid-column:1/span 3;justify-self:start;margin-top:24px" data-act="view" data-v="progress">&lt; MILESTONES</button>' : '<div style="grid-column:1/span 12;height:24px"></div>') +
+      '<div style="grid-column:1/span 12;height:24px"></div>' +
       '<h1 class="z" style="grid-column:1/span 8;margin-top:6px;font-size:96px" aria-label="' + esc(title) + '">' + kinetic(title) + '</h1>' +
       '<div class="glass list pin z" style="animation-delay:250ms">' + (rows || '<div class="empty">' + (isTasks ? 'No tasks for you here yet.' : 'Nothing to review. Bucky will ping you when something lands.') + '</div>') + '</div>' +
       (t ? (isTasks ? taskCard(t) : reviewCard(t)) : '') + '</div>';
@@ -198,6 +221,7 @@
     const listScroll = sameScreen && scr.querySelector('.list') ? scr.querySelector('.list').scrollTop : 0;
     if (!S.me) { scr.innerHTML = signinScreen(); Bucky.setPose('signin'); }
     else if (U.view === 'progress') { scr.innerHTML = progressScreen(); Bucky.setPose('progress'); if (!same) countUp(); else $('hero').textContent = S.avg + '%'; }
+    else if (U.view === 'docs') { scr.innerHTML = docsScreen(); Bucky.setPose('peek'); }
     else { scr.innerHTML = workScreen(); Bucky.setPose('peek'); }
     scr.classList.toggle('calm', sameScreen);
     const card = scr.querySelector('.card');
@@ -236,7 +260,7 @@
     clearTimeout(toastT);
     el.innerHTML = '<div class="glass toast ' + (ev.kind === 'retake' ? 'shake' : '') + ' ' + (ev.kind === 'error' ? 'error' : '') + '" role="status">' +
       '<span class="av">' + (ev.kind === 'error' ? '!' : 'B') + '</span><span style="display:flex;flex-direction:column;gap:6px;min-width:0">' +
-      '<span class="lbl">' + (ev.kind === 'error' ? 'BUCKY \u00b7 HEADS UP' : 'BUCKY \u00b7 #TASK-FEED') + '</span>' +
+      '<span class="lbl">' + (ev.kind === 'error' ? 'BUCKY \u00b7 HEADS UP' : 'BUCKY \u00b7 DISCORD') + '</span>' +
       '<span class="msg">' + (ev.mention ? '<span class="who">' + esc(ev.mention) + '</span> ' : '') + esc(ev.text) + '</span>' +
       (ev.quote ? '<span class="quote">' + esc(ev.quote) + '</span>' : '') + (ev.gif ? window.gifTile(ev.gif) : '') + '</span></div>';
     toastT = setTimeout(() => { el.innerHTML = ''; }, ev.kind === 'error' ? 7000 : 5000);
@@ -337,7 +361,9 @@
       case 'start': U.sel = t.id; U.busy = t.id; render(); run('start', { taskId: t.id }); break;
       case 'pick': pickFile(t, Number(el.dataset.i)); break;
       case 'note': U.noteOpen = true; render(); $('note').focus(); break;
-      case 'resend': U.resend = t.id; render(); break;
+      case 'resend': U.resend = t.id; U.note = t.note || ''; U.noteGif = t.noteGif || null; U.noteOpen = !!t.note; render(); break;
+      case 'noresend': U.resend = null; delete U.picks[t.id]; render(); break;
+      case 'unstart': U.busy = t.id; U.busyAct = 'unstart'; render(); run('unstart', { taskId: t.id }); break;
       case 'gifs': U.gifFor = U.gifFor === el.dataset.f ? null : el.dataset.f; U.gifQuery = ''; render(); break;
       case 'gif': U[U.gifFor + 'Gif'] = el.dataset.id; U.gifFor = null; render(); break;
       case 'nogif': U[el.dataset.f + 'Gif'] = null; render(); break;
