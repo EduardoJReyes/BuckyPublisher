@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.1.1';
+var VERSION = '1.1.2';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -34,7 +34,8 @@ var MAX_VIDEO = 8 * 1024 * 1024;
 // ---------------------------------------------------------------- entry points
 
 /** Open the /exec URL in a browser to check the backend.
-    Add ?test=discord&pass=<site password> to post a test message in every feedback channel. */
+    Add ?test=discord&pass=<site password> to post a test message in every feedback channel
+    (&msg=... sets its text). */
 function doGet(e) {
   var p = (e && e.parameter) || {}, out = ['Bucky Publisher backend ' + VERSION + ' is running.', ''];
   var props = PropertiesService.getScriptProperties().getProperties();
@@ -43,11 +44,12 @@ function doGet(e) {
   if (p.test === 'discord') {
     try {
       checkSitePass(p.pass);
+      var msg = String(p.msg || 'Bucky is connected.').slice(0, 500);
       out.push('');
       hooks.forEach(function (k) {
         if (!HOOK_RE.test(props[k])) { out.push(k + ': NOT A WEBHOOK URL. It must start with https://discord.com/api/webhooks/ (it is "' + String(props[k]).slice(0, 40) + '")'); return; }
         var r = post(props[k] + (props[k].indexOf('?') === -1 ? '?' : '&') + 'wait=true',
-          { username: 'Bucky', content: 'Bucky is connected. (test from ' + k + ')', thread_name: 'Bucky test' });
+          { username: 'Bucky', content: msg, thread_name: String(msg).slice(0, 100) });
         out.push(k + ': ' + (r.code < 300 ? 'OK, check the channel' : 'FAILED ' + r.code + ' ' + JSON.stringify(r.body)));
       });
     } catch (err) { out.push('Test refused: ' + (err.userMessage || err)); }
