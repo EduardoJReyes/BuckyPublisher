@@ -43,7 +43,7 @@ assert.equal(b.uploads[0].name, 'ADM_TeamAgreement_01.pdf');
 let d = ok('finishUpload', { taskId: '0.1', version: b.version, note: 'page 2 unsigned', gif: 'party' });
 assert.equal(task(d.state, '0.1').status, 'Pending review');
 assert.match(d.event.mention, /@Luna/);
-assert.ok(mockDiscord.at(-1).includes('ready for review'));
+assert.ok(mockDiscord.at(-1).content.includes('ready for review'));
 const pdf = Object.values(mockDrive.items).find((x) => x.name === 'ADM_TeamAgreement_01.pdf');
 assert.ok(pdf && pdf.shared && pdf.size === 20 * 1024 * 1024 + 5);
 
@@ -62,7 +62,7 @@ const q = task(st, '0.1');
 assert.ok(q.inQueue && q.files.length === 1 && q.files[0].label === 'Signed agreement');
 bad('retake', { taskId: '0.1', comment: '' }, /needs a comment/);
 d = ok('retake', { taskId: '0.1', comment: 'Sign page 2 as well', gif: 'fine' });
-assert.match(mockDiscord.at(-1), /retake on Team agreement 01/);
+assert.match(mockDiscord.at(-1).content, /retake on Team agreement 01/);
 
 // back to Eduardo: sees feedback, uploads 02, Luna approves
 st = login('eduardojosereyesperez@gmail.com');
@@ -94,4 +94,10 @@ window.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Tasks').getRange(4,
 bad('finishUpload', { taskId: '0.3', note: 'x' }, /Someone changed it/);
 bad('chunk', { url: 'https://evil.example/x', start: 0, total: 1, data: '' }, /Bad upload/);
 
+// Discord: one forum post per task, in the right channel, reused after the first message
+const tm = mockDiscord.filter((m) => m.content.includes('Team agreement'));
+assert.ok(tm.every((m) => m.hook === 'https://discord.test/design'), 'ADM goes to design');
+assert.equal(tm.filter((m) => m.title).length, 1, 'post opened once');
+assert.ok(tm.slice(1).every((m) => m.thread === tm[0].thread), 'later messages reply in the same post');
+assert.ok(mockDiscord.some((m) => m.hook === 'https://discord.test/characters' && m.title === '2.1 \u00b7 Bucky design (Sketchs, Color, Poses)'));
 console.log('backend: all good,', mockDiscord.length, 'Bucky messages');

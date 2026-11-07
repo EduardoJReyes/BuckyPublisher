@@ -5,8 +5,12 @@
  * The website (GitHub Pages) calls this with fetch(). Everything that touches the
  * sheet or Drive happens here, as Eduardo. Artists never sign in with Google.
  *
- * Script properties (Project Settings > Script properties):
- *   DISCORD_WEBHOOK   Bucky's webhook URL for #task-feed (optional, no messages without it)
+ * Script properties (Project Settings > Script properties), one webhook per feedback channel:
+ *   DISCORD_WEBHOOK_DESIGN, _CHARACTERS, _ANIMATION, _ENVIRONMENT, _UI, _AUDIO, _BUILDS
+ *   (DISCORD_WEBHOOK, if set, is used for any channel without its own webhook)
+ * Which channel a task goes to: the "Discord channel" column of the Naming tab (by prefix),
+ * or the "Discord channel for <Area>" rows of the Settings tab for tasks with no prefix.
+ * Each task gets one forum post; its ID is kept in the Tasks "Discord thread" column.
  * Settings tab in the sheet:
  *   Site password            1234
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
@@ -20,7 +24,8 @@ var STATUS = { todo: 'To do', prog: 'In progress', review: 'Pending review', ret
 var COL = {
   id: 'ID', milestone: 'Milestone', name: 'Task', prefix: 'Prefix', asset: 'Asset', dod: 'Definition of done',
   owners: 'Owner', approvers: 'Approver', file1: 'File 1', file2: 'File 2', file3: 'File 3', labels: 'File labels',
-  deps: 'Depends on', due: 'Due', status: 'Status', version: 'Version', feedback: 'Feedback', note: 'Note', updated: 'Updated'
+  deps: 'Depends on', due: 'Due', status: 'Status', version: 'Version', feedback: 'Feedback', note: 'Note', updated: 'Updated',
+  area: 'Area', thread: 'Discord thread'
 };
 var MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB hard stop, the team limit is 500 MB
 var MAX_VIDEO = 8 * 1024 * 1024;
@@ -114,7 +119,8 @@ function loadData() {
   var types = {};
   tab('File types').rows.forEach(function (r) { if (r['Type']) types[r['Type']] = (r['Extension'] || '').replace(/^\./, '').toLowerCase(); });
   var naming = {};
-  tab('Naming').rows.forEach(function (r) { if (r['Prefix']) naming[r['Prefix']] = r['Drive folder'] || ''; });
+  var channels = {};
+  tab('Naming').rows.forEach(function (r) { if (r['Prefix']) { naming[r['Prefix']] = r['Drive folder'] || ''; channels[r['Prefix']] = r['Discord channel'] || ''; } });
   var team = {};
   tab('Team').rows.forEach(function (r) {
     var name = r['Name'] || String(r['Full name'] || '').split(' ')[0];
@@ -139,7 +145,7 @@ function loadData() {
       owners: splitNames(r[COL.owners]), approvers: splitNames(r[COL.approvers]), slots: slots, deps: splitNames(r[COL.deps]),
       due: r[COL.due], dueDate: parseDate(r[COL.due], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
       status: r[COL.status] || STATUS.todo, version: parseInt(r[COL.version] || '0', 10) || 0,
-      feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row
+      feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row, area: r[COL.area] || '', thread: r[COL.thread] || ''
     };
   });
   var log = tab('Log').rows.filter(function (r) { return r['Task ID']; }).map(function (r) {
@@ -147,7 +153,7 @@ function loadData() {
       from: r['From status'], to: r['To status'], text: r['Note or feedback'] };
   });
   return {
-    team: team, tasks: tasks, milestones: milestones, naming: naming, log: log, head: T.head, sheet: T.sheet,
+    team: team, tasks: tasks, milestones: milestones, naming: naming, channels: channels, log: log, head: T.head, sheet: T.sheet,
     task: function (id) { for (var i = 0; i < tasks.length; i++) if (tasks[i].id === id) return tasks[i]; fail('No task ' + id + ' in the sheet.'); }
   };
 }
@@ -304,15 +310,47 @@ function mention(D, key) {
   return p.discord ? '<@' + p.discord + '>' : '@' + p.name;
 }
 
-function discord(D, keys, text, quote) {
-  var hook = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK');
+function channelFor(D, t) {
+  if (t.prefix && D.channels[t.prefix]) return D.channels[t.prefix];
+  var S = settings();
+  return S['Discord channel for ' + t.area] || S['Discord channel for other tasks'] || 'design';
+}
+
+function post(url, body) {
+  var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body) });
+  var out = { code: res.getResponseCode(), body: {} };
+  try { out.body = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
+  return out;
+}
+
+/** One forum post per task in its feedback channel. The first message opens the post,
+    the rest reply inside it. Returns true if Discord took the message. */
+function discord(D, t, keys, text, quote) {
+  var props = PropertiesService.getScriptProperties(), ch = channelFor(D, t);
+  var hook = props.getProperty('DISCORD_WEBHOOK_' + String(ch).toUpperCase().replace(/[^A-Z0-9]/g, '_')) || props.getProperty('DISCORD_WEBHOOK');
   if (!hook) return false;
   var content = keys.map(function (k) { return mention(D, k); }).filter(String).join(' ');
   content = (content ? content + ' ' : '') + text + (quote ? '\n> ' + quote.replace(/\n/g, '\n> ') : '');
+  var body = { username: 'Bucky', content: content.slice(0, 1900), allowed_mentions: { parse: ['users'] } };
+  var sep = hook.indexOf('?') === -1 ? '?' : '&';
   try {
-    var res = UrlFetchApp.fetch(hook, { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ username: 'Bucky', content: content.slice(0, 1900), allowed_mentions: { parse: ['users'] } }) });
-    return res.getResponseCode() < 300;
+    if (t.thread) {
+      var r = post(hook + sep + 'wait=true&thread_id=' + encodeURIComponent(t.thread), body);
+      if (r.code < 300) return true;
+      if (r.code !== 404 && r.code !== 400) { console.warn('discord', r.code, JSON.stringify(r.body)); return false; }
+      // the post was deleted: open a new one below
+    }
+    var title = (t.id + ' · ' + t.name).slice(0, 100);
+    var made = post(hook + sep + 'wait=true', Object.assign({ thread_name: title }, body));
+    if (made.code < 300) {
+      var id = made.body.channel_id;
+      if (id) { try { writeTask(D, t, objOf(COL.thread, id)); t.thread = id; } catch (e) { console.warn('no Discord thread column', e); } }
+      return true;
+    }
+    // not a forum channel: post a normal message
+    var plain = post(hook + sep + 'wait=true', body);
+    if (plain.code >= 300) console.warn('discord', plain.code, JSON.stringify(plain.body));
+    return plain.code < 300;
   } catch (e) { console.warn('discord failed', e); return false; }
 }
 
@@ -333,7 +371,7 @@ function start(me, id) {
   if (!isOwner(t, me)) fail('Only the task\'s owner can start it.');
   writeTask(D, t, objOf(COL.status, STATUS.prog, COL.updated, stamp()));
   var who = D.team[me].name, msg = who + ' started ' + t.name + '.';
-  addLog(t, t.version, who, t.status, STATUS.prog, '', discord(D, [], msg));
+  addLog(t, t.version, who, t.status, STATUS.prog, '', discord(D, t, [], msg));
   return done(me, { mention: '', text: msg });
 }
 
@@ -410,7 +448,7 @@ function finishUpload(me, req) {
   writeTask(D, t, objOf(COL.status, STATUS.review, COL.version, v, COL.note, pack(note, req.gif), COL.updated, stamp()));
   var tag = vtag(v), revs = reviewers(t);
   var msg = t.name + ' ' + tag + (again ? ' was sent again with fixes. Review this one instead.' : ' is ready for review.');
-  var sent = discord(D, revs, msg, note);
+  var sent = discord(D, t, revs, msg, note);
   addLog(t, v, D.team[me].name, t.status, STATUS.review, (again ? 're-sent: ' : '') + note, sent);
   return done(me, { mention: names(D, revs), text: msg, quote: note, gif: req.gif || null, kind: 'good' });
 }
@@ -434,7 +472,7 @@ function review(me, req, ok) {
   var status = ok ? STATUS.done : STATUS.retake;
   writeTask(D, t, objOf(COL.status, status, COL.feedback, pack(comment, req.gif), COL.updated, stamp()));
   var msg = ok ? t.name + ' ' + tag + ' approved by ' + who + '.' : 'retake on ' + t.name + ' ' + tag + ', from ' + who + ':';
-  var sent = discord(D, owners, msg, comment);
+  var sent = discord(D, t, owners, msg, comment);
   addLog(t, t.version, who, t.status, status, comment, sent);
   return done(me, { mention: names(D, owners), text: msg, quote: comment, gif: req.gif || null, kind: ok ? 'good' : 'retake' });
 }

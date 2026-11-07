@@ -25,7 +25,7 @@
   G.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: sheet }) };
 
   // ---- properties, locks, misc -----------------------------------------
-  const props = load('bucky.mockprops', { DISCORD_WEBHOOK: 'https://discord.test/webhook' });
+  const props = load('bucky.mockprops', { DISCORD_WEBHOOK: 'https://discord.test/any', DISCORD_WEBHOOK_DESIGN: 'https://discord.test/design', DISCORD_WEBHOOK_CHARACTERS: 'https://discord.test/characters', DISCORD_WEBHOOK_BUILDS: 'https://discord.test/builds' });
   G.PropertiesService = { getScriptProperties: () => ({
     getProperty: (k) => (k in props ? props[k] : null),
     setProperty: (k, v) => { props[k] = String(v); save('bucky.mockprops', props); },
@@ -72,7 +72,13 @@
   const resp = (code, headers, body) => ({ getResponseCode: () => code, getHeaders: () => headers || {}, getContentText: () => body || '' });
   G.UrlFetchApp = { fetch: (url, o) => {
     o = o || {};
-    if (url === props.DISCORD_WEBHOOK) { G.mockDiscord.push(JSON.parse(o.payload).content); (G.console || console).log('[Bucky -> Discord]', JSON.parse(o.payload).content); return resp(204); }
+    if (url.indexOf('https://discord.test/') === 0) {
+      const body = JSON.parse(o.payload), th = (url.match(/thread_id=([^&]+)/) || [])[1];
+      const thread = th || (body.thread_name ? 'thr-' + newId() : null);
+      G.mockDiscord.push({ hook: url.split('?')[0], thread, title: body.thread_name || null, content: body.content });
+      if (G.document) (G.console || console).log('[Bucky -> Discord]', url.split('?')[0].split('/').pop(), thread, body.content);
+      return resp(200, {}, JSON.stringify({ id: 'msg' + newId(), channel_id: thread || 'chan' }));
+    }
     if (url.indexOf('https://www.googleapis.com/upload/drive/v3/files') === 0 && (o.method === 'post' || o.method === 'patch')) {
       const meta = JSON.parse(o.payload), sid = 'mock-' + newId();
       const replace = (url.match(/files\/([^?]+)\?/) || [])[1];

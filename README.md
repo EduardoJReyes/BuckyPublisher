@@ -14,7 +14,19 @@ The Bucky Away task site. Pick a task, drop in its files, publish for review. Ed
 2. Replace everything in `Code.gs` with the contents of `backend/Code.gs` from this repo. Save.
 3. ⚙ **Project Settings**:
    - Time zone: Europe/Madrid.
-   - Script properties › Add `DISCORD_WEBHOOK` with Bucky's webhook URL (Discord › channel settings › Integrations › Webhooks). Skip this if you don't want messages yet.
+   - Script properties: one webhook per feedback forum (Discord › channel settings › Integrations › Webhooks › New Webhook › Copy Webhook URL):
+
+     | Property | Channel |
+     | --- | --- |
+     | `DISCORD_WEBHOOK_DESIGN` | #fb-design |
+     | `DISCORD_WEBHOOK_CHARACTERS` | #fb-characters |
+     | `DISCORD_WEBHOOK_ANIMATION` | #fb-animation |
+     | `DISCORD_WEBHOOK_ENVIRONMENT` | #fb-environment |
+     | `DISCORD_WEBHOOK_UI` | #fb-ui |
+     | `DISCORD_WEBHOOK_AUDIO` | #fb-audio |
+     | `DISCORD_WEBHOOK_BUILDS` | #fb-builds |
+
+     Missing ones just mean no messages for that channel. Which channel a task uses: the **Discord channel** column of the Naming tab (by prefix), or the `Discord channel for …` rows in Settings for tasks with no prefix. Each task gets one forum post (title `2.1 · Bucky design…`); every later message replies inside it. The post's ID is kept in the Tasks **Discord thread** column: clear it to make Bucky open a new post.
 4. **Deploy › New deployment** › gear › **Web app**.
    - Execute as: **Me**
    - Who has access: **Anyone**
