@@ -16,7 +16,8 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.1.0';
+var VERSION = '1.1.1';
+var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
 var UPLOAD_PREFIX = 'https://www.googleapis.com/upload/drive/';
@@ -44,6 +45,7 @@ function doGet(e) {
       checkSitePass(p.pass);
       out.push('');
       hooks.forEach(function (k) {
+        if (!HOOK_RE.test(props[k])) { out.push(k + ': NOT A WEBHOOK URL. It must start with https://discord.com/api/webhooks/ (it is "' + String(props[k]).slice(0, 40) + '")'); return; }
         var r = post(props[k] + (props[k].indexOf('?') === -1 ? '?' : '&') + 'wait=true',
           { username: 'Bucky', content: 'Bucky is connected. (test from ' + k + ')', thread_name: 'Bucky test' });
         out.push(k + ': ' + (r.code < 300 ? 'OK, check the channel' : 'FAILED ' + r.code + ' ' + JSON.stringify(r.body)));
@@ -346,6 +348,7 @@ function discord(D, t, keys, text, quote) {
   var props = PropertiesService.getScriptProperties(), ch = channelFor(D, t);
   var hook = props.getProperty('DISCORD_WEBHOOK_' + String(ch).toUpperCase().replace(/[^A-Z0-9]/g, '_')) || props.getProperty('DISCORD_WEBHOOK');
   if (!hook) return 'no webhook for ' + ch;
+  if (!HOOK_RE.test(hook)) return 'the webhook for ' + ch + ' is not a Discord webhook URL';
   var content = keys.map(function (k) { return mention(D, k); }).filter(String).join(' ');
   content = (content ? content + ' ' : '') + text + (quote ? '\n> ' + quote.replace(/\n/g, '\n> ') : '');
   var body = { username: 'Bucky', content: content.slice(0, 1900), allowed_mentions: { parse: ['users'] } };

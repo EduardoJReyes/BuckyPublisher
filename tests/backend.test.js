@@ -96,8 +96,8 @@ bad('chunk', { url: 'https://evil.example/x', start: 0, total: 1, data: '' }, /B
 
 // Discord: one forum post per task, in the right channel, reused after the first message
 const tm = mockDiscord.filter((m) => m.content.includes('Team agreement'));
-assert.ok(tm.every((m) => m.hook === 'https://discord.test/design'), 'ADM goes to design');
+assert.ok(tm.every((m) => m.hook === 'https://discord.com/api/webhooks/test/design'), 'ADM goes to design');
 assert.equal(tm.filter((m) => m.title).length, 1, 'post opened once');
 assert.ok(tm.slice(1).every((m) => m.thread === tm[0].thread), 'later messages reply in the same post');
-assert.ok(mockDiscord.some((m) => m.hook === 'https://discord.test/characters' && m.title === '2.1 \u00b7 Bucky design (Sketchs, Color, Poses)'));
+assert.ok(mockDiscord.some((m) => m.hook === 'https://discord.com/api/webhooks/test/characters' && m.title === '2.1 \u00b7 Bucky design (Sketchs, Color, Poses)'));
 console.log('backend: all good,', mockDiscord.length, 'Bucky messages');

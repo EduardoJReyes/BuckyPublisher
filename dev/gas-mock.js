@@ -25,7 +25,7 @@
   G.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: sheet }) };
 
   // ---- properties, locks, misc -----------------------------------------
-  const props = load('bucky.mockprops', { DISCORD_WEBHOOK: 'https://discord.test/any', DISCORD_WEBHOOK_DESIGN: 'https://discord.test/design', DISCORD_WEBHOOK_CHARACTERS: 'https://discord.test/characters', DISCORD_WEBHOOK_BUILDS: 'https://discord.test/builds' });
+  const props = load('bucky.mockprops', { DISCORD_WEBHOOK: 'https://discord.com/api/webhooks/test/any', DISCORD_WEBHOOK_DESIGN: 'https://discord.com/api/webhooks/test/design', DISCORD_WEBHOOK_CHARACTERS: 'https://discord.com/api/webhooks/test/characters', DISCORD_WEBHOOK_BUILDS: 'https://discord.com/api/webhooks/test/builds' });
   G.PropertiesService = { getScriptProperties: () => ({
     getProperty: (k) => (k in props ? props[k] : null),
     setProperty: (k, v) => { props[k] = String(v); save('bucky.mockprops', props); },
@@ -72,7 +72,7 @@
   const resp = (code, headers, body) => ({ getResponseCode: () => code, getHeaders: () => headers || {}, getContentText: () => body || '' });
   G.UrlFetchApp = { fetch: (url, o) => {
     o = o || {};
-    if (url.indexOf('https://discord.test/') === 0) {
+    if (url.indexOf('https://discord.com/api/webhooks/test/') === 0) {
       const body = JSON.parse(o.payload), th = (url.match(/thread_id=([^&]+)/) || [])[1];
       const thread = th || (body.thread_name ? 'thr-' + newId() : null);
       G.mockDiscord.push({ hook: url.split('?')[0], thread, title: body.thread_name || null, content: body.content });
