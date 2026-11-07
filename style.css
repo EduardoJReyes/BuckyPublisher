@@ -166,3 +166,19 @@ button:not(:disabled):active{transform:scale(.96,.9);transition-duration:.08s}
 .thumb{display:block;max-width:100%;max-height:260px;border-radius:4px;background:rgba(0,0,0,.2)}
 .vid{width:100%;aspect-ratio:16/9;border:0;border-radius:4px;background:#000}
 .linkbtn{display:inline-flex;align-items:center;text-decoration:none;color:var(--cream)}
+
+/* ---- loading: three goo blobs bouncing in a loop ---- */
+.busy{display:inline-flex;align-items:center;gap:10px}
+.loader{--blob:radial-gradient(circle at 35% 30%,#F7A27E 0%,#EB5E28 50%,#B9441A 100%);display:inline-flex;align-items:flex-end;gap:3px;height:16px;filter:drop-shadow(0 1px 0 rgba(0,0,0,.15))}
+.loader i{display:block;width:9px;height:9px;border-radius:50%;background:var(--blob);animation:blobhop .9s cubic-bezier(.45,0,.55,1) infinite}
+.loader i:nth-child(2){animation-delay:.12s}
+.loader i:nth-child(3){animation-delay:.24s}
+@keyframes blobhop{
+  0%,100%{transform:translateY(0) scale(1.25,.75);border-radius:50% 50% 45% 45%}
+  30%{transform:translateY(-6px) scale(.85,1.2);border-radius:50%}
+  55%{transform:translateY(-7px) scale(1,1)}
+  80%{transform:translateY(0) scale(1.15,.85)}
+}
+.navx .loader{height:10px}.navx .loader i{width:6px;height:6px}
+@media (prefers-reduced-motion:reduce){.loader i{animation:blobpulse 1.2s ease-in-out infinite!important}}
+@keyframes blobpulse{0%,100%{opacity:.4}50%{opacity:1}}

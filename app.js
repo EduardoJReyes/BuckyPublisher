@@ -15,6 +15,7 @@
   const pill = (st) => '<span class="pill ' + PILL[st] + '">' + label(st) + '</span>';
   const names = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' & ' + a[a.length - 1] : a.join(''));
   const kinetic = (txt, delay) => '<span class="k" style="animation-delay:' + (delay || 0) + 'ms">' + esc(txt) + '</span>';
+  const blobs = (txt) => '<span class="busy"><span class="loader" aria-hidden="true"><i></i><i></i><i></i></span>' + txt + '</span>';
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
   const mb = (b) => (b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -41,16 +42,16 @@
   function signinScreen() {
     const err = U.error ? '<span class="formerr" role="alert">' + esc(U.error) + '</span>' : '';
     let inner;
-    if (!U.booted) inner = '<span class="lbl">WAKING BUCKY UP…</span>';
+    if (!U.booted) inner = '<span class="lbl">' + blobs('WAKING BUCKY UP') + '</span>';
     else if (!U.gateOk) {
       inner = '<form class="form" data-form="gate"><label class="lbl" for="sitepass">SITE PASSWORD</label>' +
         '<input type="password" id="sitepass" autocomplete="off" required>' + err +
-        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? 'Checking…' : 'Enter') + '</button></form>';
+        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? blobs('Checking') : 'Enter') + '</button></form>';
     } else {
       inner = '<form class="form" data-form="login"><label class="lbl" for="email">GMAIL</label>' +
         '<input type="email" id="email" autocomplete="username" value="' + esc(API.store.get('bucky.email') || '') + '" required>' +
         '<label class="lbl" for="pass">PASSWORD</label><input type="password" id="pass" autocomplete="current-password" required>' + err +
-        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? 'Signing in…' : 'Sign in') + '</button></form>';
+        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? blobs('Signing in') : 'Sign in') + '</button></form>';
     }
     return '<div class="grid"><h1 class="z" style="grid-column:1/span 7;margin-top:110px;font-size:128px;line-height:.92" aria-label="Bucky Publisher">' +
       kinetic('Bucky') + '<br>' + kinetic('Publisher', 150) + '</h1>' +
@@ -118,7 +119,7 @@
     if (t.status === 'Approved') h += '<div class="field" style="gap:6px"><span class="big" style="color:var(--orange)">Approved.</span><span class="muted">Nothing left to do here.</span></div>';
     if (t.status === 'To do') {
       if (t.blockers.length) h += '<span style="font-size:14px;color:var(--stone)">Usually starts after ' + esc(t.blockers.join(', ')) + '.</span>';
-      h += '<div><button class="btn primary" data-act="start" ' + (busy ? 'disabled' : '') + '>' + (busy ? 'Starting\u2026' : 'Start task') + '</button></div>';
+      h += '<div><button class="btn primary" data-act="start" ' + (busy ? 'disabled' : '') + '>' + (busy ? blobs('Starting') : 'Start task') + '</button></div>';
     }
     if (editing) {
       const noFiles = !t.slots.length, missing = t.slots.filter((s, i) => !picks[i]).length;
@@ -135,7 +136,7 @@
           '<textarea id="note" rows="2">' + esc(U.note) + '</textarea>' + gifRow('note') + '</div>';
       }
       const ready = !busy && (noFiles ? !!U.note.trim() : missing === 0);
-      const lbl = busy ? (up ? 'Uploading ' + pctOf(sum(up.done), up.total) + '%' : 'Sending\u2026') : (!noFiles && missing) ? plural(missing, 'file missing', 'files missing') : isPending ? 'Send again' : noFiles ? 'Send for review' : 'Publish for review';
+      const lbl = busy ? (U.finishing ? blobs('Finishing') : up ? blobs('Uploading ' + pctOf(sum(up.done), up.total) + '%') : blobs('Sending')) : (!noFiles && missing) ? plural(missing, 'file missing', 'files missing') : isPending ? 'Send again' : noFiles ? 'Send for review' : 'Publish for review';
       h += '<div><button class="btn primary" id="publish" data-act="publish" data-nofiles="' + (noFiles ? 1 : 0) + '" data-missing="' + missing + '" ' + (ready ? '' : 'disabled') + '>' + lbl + '</button></div>';
     }
     h += historyBlock(t) + '</div>';
@@ -166,8 +167,8 @@
         '<span style="display:flex;gap:8px"><a class="outline linkbtn" href="' + esc(f.view) + '" target="_blank" rel="noopener">Open</a><a class="outline linkbtn" href="' + esc(f.download) + '" target="_blank" rel="noopener">Download</a></span></div></div>').join('');
     }
     h += '<div class="field"><label class="lbl" for="fb">COMMENT</label><textarea id="fb" rows="2" placeholder="Needed for a retake. Optional to approve.">' + esc(U.fb) + '</textarea>' + gifRow('fb') + '</div>' +
-      '<div style="display:flex;gap:14px;flex-wrap:wrap"><button class="btn primary" data-act="approve" ' + (busy ? 'disabled' : '') + '>Approve</button>' +
-      '<button class="btn line" id="retake" data-act="retake" ' + (busy || empty ? 'disabled' : '') + '>Retake</button></div>' + historyBlock(t) + '</div>';
+      '<div style="display:flex;gap:14px;flex-wrap:wrap"><button class="btn primary" data-act="approve" ' + (busy ? 'disabled' : '') + '>' + (busy && U.busyAct === 'approve' ? blobs('Approving') : 'Approve') + '</button>' +
+      '<button class="btn line" id="retake" data-act="retake" ' + (busy || empty ? 'disabled' : '') + '>' + (busy && U.busyAct === 'retake' ? blobs('Sending') : 'Retake') + '</button></div>' + historyBlock(t) + '</div>';
     return h;
   }
 
@@ -224,7 +225,7 @@
   function chip() {
     const c = $('chip');
     let h = '';
-    if (S.me) h += '<span>' + esc(S.me.full).toUpperCase() + '</span><button class="navx" style="margin:0" data-act="refresh">REFRESH</button>' +
+    if (S.me) h += '<span>' + esc(S.me.full).toUpperCase() + '</span><button class="navx" style="margin:0" data-act="refresh">' + (U.refreshing ? blobs('REFRESHING') : 'REFRESH') + '</button>' +
       '<button class="navx" style="margin:0" data-act="signout">SIGN OUT</button>';
     if (API.MOCK) h += '<span><b>TEST DATA</b> \u00b7 NOTHING HERE TOUCHES GOOGLE</span><button class="navx" style="margin:0" data-act="reset">RESET TEST DATA</button>';
     c.innerHTML = h;
@@ -260,7 +261,7 @@
       if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' });
       return null;
     } finally {
-      U.busy = null; U.loading = false; U.up = null;
+      U.busy = null; U.loading = false; U.up = null; U.finishing = false; U.busyAct = null; U.refreshing = false;
       render();
     }
   }
@@ -290,6 +291,7 @@
     const note = U.note, gif = U.noteGif || '';
     delete U.picks[t.id];
     Bucky.burst();
+    U.finishing = true; render();
     await run('finishUpload', { taskId: t.id, version: begun.version, note, gif });
   }
 
@@ -302,7 +304,7 @@
       if (txt) txt.textContent = upText(up, Number(i), f);
     });
     const b = $('publish');
-    if (b) b.textContent = 'Uploading ' + pctOf(sum(up.done), up.total) + '%';
+    if (b) b.innerHTML = blobs('Uploading ' + pctOf(sum(up.done), up.total) + '%');
   }
 
   function pickFile(t, i) {
@@ -327,7 +329,7 @@
     const t = current();
     switch (a) {
       case 'signout': API.call('logout').catch(() => {}); signedOut(); render(); break;
-      case 'refresh': run('state'); break;
+      case 'refresh': U.refreshing = true; chip(); run('state'); break;
       case 'reset': try { ['bucky.mock', 'bucky.mockprops', 'bucky.mockdrive', 'bucky.token'].forEach((k) => localStorage.removeItem(k)); } catch (e) {} location.reload(); break;
       case 'view': U.view = el.dataset.v; U.sel = null; clean(); render(); break;
       case 'ms': U.view = 'tasks'; U.ms = el.dataset.ms; U.sel = null; clean(); render(); break;
@@ -340,8 +342,8 @@
       case 'gif': U[U.gifFor + 'Gif'] = el.dataset.id; U.gifFor = null; render(); break;
       case 'nogif': U[el.dataset.f + 'Gif'] = null; render(); break;
       case 'publish': publish(t); break;
-      case 'approve': U.busy = t.id; render(); Bucky.burst(); run('approve', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
-      case 'retake': if (!U.fb.trim()) return; U.busy = t.id; render(); run('retake', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
+      case 'approve': U.busy = t.id; U.busyAct = 'approve'; render(); Bucky.burst(); run('approve', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
+      case 'retake': if (!U.fb.trim()) return; U.busy = t.id; U.busyAct = 'retake'; render(); run('retake', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
     }
   }
 
