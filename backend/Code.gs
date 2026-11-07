@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.0.0';
+var VERSION = '1.1.0';
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
 var UPLOAD_PREFIX = 'https://www.googleapis.com/upload/drive/';
@@ -32,8 +32,25 @@ var MAX_VIDEO = 8 * 1024 * 1024;
 
 // ---------------------------------------------------------------- entry points
 
-function doGet() {
-  return ContentService.createTextOutput('Bucky Publisher backend ' + VERSION + ' is running.');
+/** Open the /exec URL in a browser to check the backend.
+    Add ?test=discord&pass=<site password> to post a test message in every feedback channel. */
+function doGet(e) {
+  var p = (e && e.parameter) || {}, out = ['Bucky Publisher backend ' + VERSION + ' is running.', ''];
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var hooks = Object.keys(props).filter(function (k) { return k.indexOf('DISCORD_WEBHOOK') === 0; }).sort();
+  out.push('Discord webhooks set: ' + (hooks.length ? hooks.join(', ') : 'none'));
+  if (p.test === 'discord') {
+    try {
+      checkSitePass(p.pass);
+      out.push('');
+      hooks.forEach(function (k) {
+        var r = post(props[k] + (props[k].indexOf('?') === -1 ? '?' : '&') + 'wait=true',
+          { username: 'Bucky', content: 'Bucky is connected. (test from ' + k + ')', thread_name: 'Bucky test' });
+        out.push(k + ': ' + (r.code < 300 ? 'OK, check the channel' : 'FAILED ' + r.code + ' ' + JSON.stringify(r.body)));
+      });
+    } catch (err) { out.push('Test refused: ' + (err.userMessage || err)); }
+  }
+  return ContentService.createTextOutput(out.join('\n'));
 }
 
 function doPost(e) {
@@ -169,7 +186,7 @@ function writeTask(D, t, values) {
 function stamp() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'); }
 
 function addLog(t, version, who, from, to, text, sent) {
-  tab('Log').sheet.appendRow([stamp(), t.id, version, who, from, to, text || '', sent ? 'yes' : '']);
+  tab('Log').sheet.appendRow([stamp(), t.id, version, who, from, to, text || '', sent === true ? 'yes' : (sent || '')]);
 }
 
 // ---------------------------------------------------------------- login
@@ -328,7 +345,7 @@ function post(url, body) {
 function discord(D, t, keys, text, quote) {
   var props = PropertiesService.getScriptProperties(), ch = channelFor(D, t);
   var hook = props.getProperty('DISCORD_WEBHOOK_' + String(ch).toUpperCase().replace(/[^A-Z0-9]/g, '_')) || props.getProperty('DISCORD_WEBHOOK');
-  if (!hook) return false;
+  if (!hook) return 'no webhook for ' + ch;
   var content = keys.map(function (k) { return mention(D, k); }).filter(String).join(' ');
   content = (content ? content + ' ' : '') + text + (quote ? '\n> ' + quote.replace(/\n/g, '\n> ') : '');
   var body = { username: 'Bucky', content: content.slice(0, 1900), allowed_mentions: { parse: ['users'] } };
@@ -337,7 +354,7 @@ function discord(D, t, keys, text, quote) {
     if (t.thread) {
       var r = post(hook + sep + 'wait=true&thread_id=' + encodeURIComponent(t.thread), body);
       if (r.code < 300) return true;
-      if (r.code !== 404 && r.code !== 400) { console.warn('discord', r.code, JSON.stringify(r.body)); return false; }
+      if (r.code !== 404 && r.code !== 400) return 'Discord ' + r.code + ': ' + JSON.stringify(r.body).slice(0, 150);
       // the post was deleted: open a new one below
     }
     var title = (t.id + ' · ' + t.name).slice(0, 100);
@@ -349,9 +366,9 @@ function discord(D, t, keys, text, quote) {
     }
     // not a forum channel: post a normal message
     var plain = post(hook + sep + 'wait=true', body);
-    if (plain.code >= 300) console.warn('discord', plain.code, JSON.stringify(plain.body));
-    return plain.code < 300;
-  } catch (e) { console.warn('discord failed', e); return false; }
+    if (plain.code < 300) return true;
+    return 'Discord ' + made.code + ': ' + JSON.stringify(made.body).slice(0, 150);
+  } catch (e) { return 'Discord error: ' + String(e).slice(0, 150); }
 }
 
 function names(D, keys) { return keys.map(function (k) { return '@' + (D.team[k] ? D.team[k].name : k); }).join(' '); }
