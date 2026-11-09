@@ -207,19 +207,20 @@ a.doc:active{transform:scale(.97,.94);transition-duration:.08s}
 /* liquid fill: buttons while loading, milestone rows by % */
 @keyframes liqgrow{from{width:0}to{width:var(--w)}}
 .filling{position:relative;overflow:hidden;isolation:isolate}
-.btn.primary.filling:disabled,.btn.line.filling:disabled,.outline.filling:disabled{background:rgba(255,252,242,.1);color:var(--cream);border-color:rgba(255,252,242,.25);cursor:progress}
+.filling[aria-busy],.btn.primary.filling:disabled,.btn.line.filling:disabled,.outline.filling:disabled{background:rgba(255,252,242,.1);color:var(--cream);border-color:rgba(255,252,242,.25);cursor:progress}
 .liq,.msliq{position:absolute;left:0;top:0;bottom:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg,#F7A27E 0%,#EB5E28 45%,#B9441A 100%);box-shadow:inset 0 2px 0 rgba(255,252,242,.25)}
 .liq{transition:width .3s linear}
-.liq::after,.msliq::after{content:"";position:absolute;top:0;bottom:0;right:-17px;width:18px;
+.liq::after,.msliq::after{content:"";position:absolute;top:0;bottom:0;right:-15px;width:16px;
   background:inherit;box-shadow:none;
-  -webkit-mask:radial-gradient(ellipse 18px 13px at 0 50%,#000 97%,transparent 100%) 0 0/18px 32px repeat-y;
-  mask:radial-gradient(ellipse 18px 13px at 0 50%,#000 97%,transparent 100%) 0 0/18px 32px repeat-y;
-  animation:liqwave 1.3s linear infinite}
-@keyframes liqwave{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 -32px;mask-position:0 -32px}}
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='40'%3E%3Cpath d='M0 0 L8.00 0 L8.94 1 L9.85 2 L10.72 3 L11.53 4 L12.24 5 L12.85 6 L13.35 7 L13.71 8 L13.93 9 L14.00 10 L13.93 11 L13.71 12 L13.35 13 L12.85 14 L12.24 15 L11.53 16 L10.72 17 L9.85 18 L8.94 19 L8.00 20 L7.06 21 L6.15 22 L5.28 23 L4.47 24 L3.76 25 L3.15 26 L2.65 27 L2.29 28 L2.07 29 L2.00 30 L2.07 31 L2.29 32 L2.65 33 L3.15 34 L3.76 35 L4.47 36 L5.28 37 L6.15 38 L7.06 39 L8.00 40 L0 40Z'/%3E%3C/svg%3E") 0 0/16px 40px repeat-y;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='40'%3E%3Cpath d='M0 0 L8.00 0 L8.94 1 L9.85 2 L10.72 3 L11.53 4 L12.24 5 L12.85 6 L13.35 7 L13.71 8 L13.93 9 L14.00 10 L13.93 11 L13.71 12 L13.35 13 L12.85 14 L12.24 15 L11.53 16 L10.72 17 L9.85 18 L8.94 19 L8.00 20 L7.06 21 L6.15 22 L5.28 23 L4.47 24 L3.76 25 L3.15 26 L2.65 27 L2.29 28 L2.07 29 L2.00 30 L2.07 31 L2.29 32 L2.65 33 L3.15 34 L3.76 35 L4.47 36 L5.28 37 L6.15 38 L7.06 39 L8.00 40 L0 40Z'/%3E%3C/svg%3E") 0 0/16px 40px repeat-y;
+  animation:liqwave 1.2s linear infinite}
+@keyframes liqwave{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 -40px;mask-position:0 -40px}}
 .liqtxt{position:relative;z-index:1;text-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap}
 .msrow{position:relative;overflow:hidden;isolation:isolate;border-radius:4px;padding:0 14px;box-sizing:border-box}
 .msrow > span:not(.msliq){position:relative;z-index:1}
 .msliq{width:var(--w);opacity:.85;animation:liqgrow 1.4s cubic-bezier(.2,.8,.2,1) both}
 .calm .msliq{animation:none}
 @media (prefers-reduced-motion:reduce){.liq::after,.msliq::after{animation:none!important}.msliq{animation:none!important;width:var(--w)}}
+
+.filling[aria-busy]{display:flex;align-items:center;justify-content:center}

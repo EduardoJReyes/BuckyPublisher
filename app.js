@@ -73,7 +73,7 @@
     const err = U.error ? '<span class="formerr" role="alert">' + esc(U.error) + '</span>' : '';
     const busyBtn = (txt) => '<button class="btn cream primary filling" id="busybtn" type="submit" disabled>' + fill(txt) + '</button>';
     let inner;
-    if (!U.booted) inner = '<span class="lbl">' + blobs('WAKING BUCKY UP') + '</span>';
+    if (!U.booted) inner = '<div class="btn cream primary filling" id="busybtn" aria-busy="true">' + fill('Waking Bucky up') + '</div>';
     else if (!U.gateOk) {
       inner = '<form class="form" data-form="gate">' +
         '<input type="password" id="sitepass" autocomplete="off" placeholder="Site password" aria-label="Site password" required>' + err +
@@ -467,10 +467,13 @@
   }
 
   async function boot() {
+    startProg('Waking Bucky up', 0, 90);
     render();
     if (API.store.get('bucky.token')) {
       try { apply(await API.call('state')); } catch (e) { if (e.signedOut) signedOut(); else U.error = e.message; }
     }
+    setProg(100);
+    await sleep(250);
     U.booted = true;
     render();
     const first = $('sitepass') || ($('email') && ($('email').value ? $('pass') : $('email')));
