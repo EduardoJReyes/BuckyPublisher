@@ -130,3 +130,28 @@ TS.getRange(trow, th.indexOf('Start') + 1).setValue('5 Nov');
 onEdit({ range: TS.getRange(trow, th.indexOf('Start') + 1) });
 assert.equal(ganttRow('4.3')[4], '5 Nov');
 console.log('backend: gantt sync good');
+
+// New task typed into the Gantt shows up in Tasks and on the website
+{
+  const G2 = ss.getSheetByName('PreStart_Gantt'), gh = G2.getDataRange().getDisplayValues()[0];
+  const row = G2.getLastRow() + 1;
+  const put = (h, v) => G2.getRange(row, gh.indexOf(h) + 1).setValue(v);
+  put('Task', 'Bucky idle animation'); put('Owner', 'Luna'); put('Start', '16 Nov'); put('End', '18 Nov');
+  put('Area', 'Art'); put('Prefix', 'ANIM'); put('Approver', 'Eduardo'); put('Description', 'Idle loop, 2 s'); put('File 1', 'Video');
+  G2.getRange(row, 1).setValue('2.9');
+  onEdit({ range: G2.getRange(row, 1) });
+  const [h2, t2] = taskRow('2.9');
+  assert.ok(t2, 'task created in Tasks');
+  assert.equal(t2[h2.indexOf('Status')], 'To do');
+  assert.equal(t2[h2.indexOf('Milestone')], 'Pre-start');
+  assert.equal(t2[h2.indexOf('Definition of done')], 'Idle loop, 2 s');
+  assert.equal(ganttRow('2.9')[gh.indexOf('Status')], 'To do', 'Gantt gets the default status');
+  // description edited in the Gantt
+  put('Description', 'Idle loop, 3 s'); onEdit({ range: G2.getRange(row, gh.indexOf('Description') + 1) });
+  assert.equal(taskRow('2.9')[1][h2.indexOf('Definition of done')], 'Idle loop, 3 s');
+  const st3 = login('lunaghiso@gmail.com');
+  const nt = task(st3, '2.9');
+  assert.ok(nt && nt.slots[0].ext === 'mp4' && nt.startIso > 0, 'Luna sees it with its file slot and start date');
+  assert.deepEqual(ok('forgot', { email: 'marctragant@gmail.com' }), { ok: true });
+  console.log('backend: new tasks from the Gantt good');
+}

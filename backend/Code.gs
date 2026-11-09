@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.3.0';
+var VERSION = '1.4.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -73,6 +73,7 @@ function handle(req) {
   var a = req.action;
   if (a === 'gate') { checkSitePass(req.sitePass); return { ok: true }; }
   if (a === 'login') return login(req.sitePass, req.email, req.password);
+  if (a === 'forgot') return forgot(req.sitePass, req.email);
   var me = whoIs(req.token);
   switch (a) {
     case 'state': return { state: state(me) };
@@ -166,6 +167,7 @@ function loadData() {
       id: r[COL.id], ms: r[COL.milestone], name: r[COL.name], prefix: r[COL.prefix], asset: r[COL.asset], dod: r[COL.dod],
       owners: splitNames(r[COL.owners]), approvers: splitNames(r[COL.approvers]), slots: slots, deps: splitNames(r[COL.deps]),
       due: r[COL.due], dueDate: parseDate(r[COL.due], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
+      startDate: parseDate(r['Start'], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
       status: r[COL.status] || STATUS.todo, version: parseInt(r[COL.version] || '0', 10) || 0,
       feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row, area: r[COL.area] || '', thread: r[COL.thread] || ''
     };
@@ -195,22 +197,41 @@ function writeTask(D, t, values) {
 }
 
 // ---------------------------------------------------------------- Gantt <-> Tasks
-// Status, Start and End can be edited in PreStart_Gantt or in Tasks; the other one follows.
+// PreStart_Gantt is where tasks are planned and edited. Every column below is copied to
+// the Tasks tab (the full record the website reads), and changes from the website are
+// written back. A new ID typed in an empty Gantt row creates the task in Tasks.
 var GANTT = 'PreStart_Gantt';
-var GANTT_TO_TASKS = { 'Status': 'Status', 'Start': 'Start', 'End': 'Due' };
-var TASKS_TO_GANTT = { 'Status': 'Status', 'Start': 'Start', 'Due': 'End' };
+var GANTT_MILESTONE = 'Pre-start';
+var GANTT_TO_TASKS = {
+  'Task': 'Task', 'Owner': 'Owner', 'Status': 'Status', 'Start': 'Start', 'End': 'Due', 'Area': 'Area', 'Prefix': 'Prefix',
+  'Approver': 'Approver', 'Description': 'Definition of done', 'Output': 'Output', 'File 1': 'File 1', 'File 2': 'File 2',
+  'File 3': 'File 3', 'File labels': 'File labels', 'Depends on': 'Depends on'
+};
+var TASKS_TO_GANTT = {};
+Object.keys(GANTT_TO_TASKS).forEach(function (k) { TASKS_TO_GANTT[GANTT_TO_TASKS[k]] = k; });
 
-/** Write values (by header) into the row of sheet `name` whose ID (column A) is `id`. */
-function writeRow(name, id, values) {
+function headersOf(sh) {
+  return sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
+}
+
+/** Write values (by header) into the row of sheet `name` whose ID (column A) is `id`.
+    With create=true and no such row, the ID goes in the first empty row first. */
+function writeRow(name, id, values, create) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  if (!sh || sh.getLastRow() < 2) return false;
-  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
-  var ids = sh.getRange(1, 1, sh.getLastRow(), 1).getDisplayValues().map(function (r) { return String(r[0]).trim(); });
+  if (!sh) return false;
+  var head = headersOf(sh);
+  var last = Math.max(sh.getLastRow(), 1);
+  var ids = sh.getRange(1, 1, last, 1).getDisplayValues().map(function (r) { return String(r[0]).trim(); });
   var row = ids.indexOf(String(id).trim());
-  if (row < 1) return false;
+  if (row < 1) {
+    if (!create) return false;
+    var empty = ids.indexOf('', 1);
+    row = empty === -1 ? last : empty;
+    sh.getRange(row + 1, 1).setValue(id);
+  }
   Object.keys(values).forEach(function (h) {
     var c = head.indexOf(h);
-    if (c !== -1) sh.getRange(row + 1, c + 1).setValue(values[h]);
+    if (c !== -1 && h !== 'Asset') sh.getRange(row + 1, c + 1).setValue(values[h]);
   });
   return true;
 }
@@ -219,20 +240,39 @@ function writeRow(name, id, values) {
 function onEdit(e) {
   try {
     var range = e.range, sh = range.getSheet(), name = sh.getName();
-    var map = name === GANTT ? GANTT_TO_TASKS : name === 'Tasks' ? TASKS_TO_GANTT : null;
+    var fromGantt = name === GANTT, map = fromGantt ? GANTT_TO_TASKS : name === 'Tasks' ? TASKS_TO_GANTT : null;
     if (!map) return;
-    var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
+    var head = headersOf(sh);
     var r0 = range.getRow(), c0 = range.getColumn(), nr = range.getNumRows(), nc = range.getNumColumns();
+    var idEdited = c0 === 1;
     var cols = [];
     for (var c = c0; c < c0 + nc; c++) if (map[head[c - 1]]) cols.push(c);
-    if (!cols.length) return;
-    var ids = sh.getRange(r0, 1, nr, 1).getDisplayValues();
+    if (!cols.length && !(fromGantt && idEdited)) return;
     for (var i = 0; i < nr; i++) {
-      if (r0 + i < 2 || !String(ids[i][0]).trim()) continue;
+      var r = r0 + i;
+      if (r < 2) continue;
+      var id = String(sh.getRange(r, 1).getDisplayValue()).trim();
+      if (!id) continue;
       var out = {};
-      cols.forEach(function (c) { out[map[head[c - 1]]] = sh.getRange(r0 + i, c).getValue(); });
-      if (name === GANTT && out[COL.status] !== undefined) out[COL.updated] = stamp();
-      writeRow(name === GANTT ? 'Tasks' : GANTT, ids[i][0], out);
+      // a new ID in the Gantt (or a row whose ID is not in Tasks yet): copy the whole row
+      var rowCols = cols;
+      if (fromGantt && (idEdited || !writeRow('Tasks', id, {}, false))) {
+        rowCols = [];
+        head.forEach(function (h, j) { if (map[h]) rowCols.push(j + 1); });
+      }
+      rowCols.forEach(function (c) { out[map[head[c - 1]]] = sh.getRange(r, c).getValue(); });
+      if (fromGantt) {
+        var created = !writeRow('Tasks', id, {}, false);
+        if (created) {
+          if (!out[COL.status]) { out[COL.status] = STATUS.todo; sh.getRange(r, head.indexOf('Status') + 1).setValue(STATUS.todo); }
+          out[COL.milestone] = GANTT_MILESTONE;
+          out[COL.version] = 0;
+        }
+        if (out[COL.status] !== undefined) out[COL.updated] = stamp();
+        writeRow('Tasks', id, out, created);
+      } else {
+        writeRow(GANTT, id, out, false);
+      }
     }
   } catch (err) { console.warn('onEdit sync failed', err); }
 }
@@ -264,6 +304,22 @@ function login(sitePass, email, password) {
   var token = Utilities.getUuid();
   props.setProperty('tok_' + token, JSON.stringify({ u: me.key, exp: now + TOKEN_DAYS * 864e5 }));
   return { token: token, state: state(me.key) };
+}
+
+/** "Did you forget your password?": tells Eduardo on Discord (DISCORD_WEBHOOK_ADMIN), if set.
+    Always answers the same, so it can't be used to find out who is on the team. */
+function forgot(sitePass, email) {
+  checkSitePass(sitePass);
+  email = String(email || '').trim().toLowerCase();
+  if (!email) fail('Type your Gmail first.');
+  var D = loadData(), who = null;
+  Object.keys(D.team).forEach(function (k) { if (D.team[k].email === email) who = D.team[k]; });
+  var hook = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_ADMIN');
+  if (hook && HOOK_RE.test(hook)) {
+    var text = (who ? who.full + ' (' + email + ')' : 'Someone using ' + email + ' (not in the Team tab)') + ' forgot their Bucky Publisher password.';
+    post(hook, { username: 'Bucky', content: mention(D, 'eduardo') + ' ' + text, allowed_mentions: { parse: ['users'] } });
+  }
+  return { ok: true };
 }
 
 function whoIs(token) {
@@ -601,7 +657,7 @@ function state(me) {
     var retakeBy = (hist.filter(function (e) { return e.to === STATUS.retake; })[0] || {}).who || '';
     tasks.push({
       id: t.id, name: t.name, ms: t.ms, status: t.status, dod: t.dod, due: fmtDay(t.dueDate) || t.due,
-      dueIso: t.dueDate ? t.dueDate.getTime() : 0, version: t.version, vtag: vtag(t.version),
+      dueIso: t.dueDate ? t.dueDate.getTime() : 0, startIso: t.startDate ? t.startDate.getTime() : 0, version: t.version, vtag: vtag(t.version),
       owners: t.owners.join(' & '), reviewers: reviewers(t).map(function (k) { return D.team[k] ? D.team[k].name : k; }),
       feedback: fb.text, feedbackGif: fb.gif, retakeBy: retakeBy, note: nt.text, noteGif: nt.gif,
       slots: t.slots.map(function (s) { return { label: slotLabel(s), ext: s.ext }; }),

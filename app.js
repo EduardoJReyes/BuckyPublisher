@@ -1,11 +1,12 @@
 // Bucky Publisher UI. Data and actions go through BuckyAPI (api.js) to the Apps Script
 // backend. This file renders S (state from the backend) and U (local UI state).
 (function () {
+  const VERSION = '1.4.0';
   const API = window.BuckyAPI;
   let S = { me: null };         // state from the backend
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
-    fb: '', fbGif: null, gifFor: null, gifQuery: '', resend: null, busy: null, loading: false, error: '',
-    gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false };
+    fb: '', resend: null, busy: null, loading: false, error: '',
+    gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false, prog: 0, progText: '' };
   let lastKey = '', lastScreenKey = '', countT = null, toastT = null;
 
   const $ = (id) => document.getElementById(id);
@@ -15,6 +16,24 @@
   const pill = (st) => '<span class="pill ' + PILL[st] + '">' + label(st) + '</span>';
   const names = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' & ' + a[a.length - 1] : a.join(''));
   const kinetic = (txt, delay) => '<span class="k" style="animation-delay:' + (delay || 0) + 'ms">' + esc(txt) + '</span>';
+  // a button that fills with orange goo while something is loading, with the % inside
+  const fill = (txt) => '<span class="liq" style="width:' + Math.round(U.prog) + '%"></span><span class="liqtxt">' + txt + ' ' + Math.round(U.prog) + '%</span>';
+  let progT = null;
+  function startProg(text, from, to) {
+    clearInterval(progT);
+    U.progText = text; U.prog = from || 0;
+    const top = to || 90;
+    progT = setInterval(() => { U.prog += (top - U.prog) * 0.06; paintProg(); }, 120);
+  }
+  function setProg(p, text) { clearInterval(progT); U.prog = p; if (text) U.progText = text; paintProg(); }
+  function paintProg() {
+    const b = $('busybtn');
+    if (!b) return;
+    const l = b.querySelector('.liq'), t = b.querySelector('.liqtxt');
+    if (l) l.style.width = Math.round(U.prog) + '%';
+    if (t) t.textContent = U.progText + ' ' + Math.round(U.prog) + '%';
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const blobs = (txt) => '<span class="busy"><span class="loader" aria-hidden="true"><i></i><i></i><i></i></span>' + txt + '</span>';
   // "DUE 4 NOV · 3 DAYS LEFT" / "DUE TODAY" / "2 DAYS LATE"
   const dueText = (t) => {
@@ -43,25 +62,28 @@
   const mine = (ms) => tasks().filter((t) => t.mine && (!ms || t.ms === ms));
   const queue = () => tasks().filter((t) => t.inQueue);
   const order = { 'Retake': 0, 'In progress': 1, 'To do': 2, 'Pending review': 3, 'Approved': 4 };
-  const sorted = (l) => l.slice().sort((a, b) => order[a.status] - order[b.status]);
+  // oldest start first; tasks without a start date go last
+  const sorted = (l) => l.slice().sort((a, b) => (a.startIso || 9e15) - (b.startIso || 9e15) || (a.dueIso || 9e15) - (b.dueIso || 9e15) || order[a.status] - order[b.status]);
   function list() { return U.view === 'review' ? queue() : sorted(mine(U.ms)); }
   function current() { const l = list(); return l.find((t) => t.id === U.sel) || l[0] || null; }
-  function clean() { Object.assign(U, { note: '', noteOpen: false, noteGif: null, fb: '', fbGif: null, gifFor: null, gifQuery: '', resend: null }); }
+  function clean() { Object.assign(U, { note: '', noteOpen: false, fb: '', resend: null }); }
 
   // ---- screens --------------------------------------------------------
   function signinScreen() {
     const err = U.error ? '<span class="formerr" role="alert">' + esc(U.error) + '</span>' : '';
+    const busyBtn = (txt) => '<button class="btn cream primary filling" id="busybtn" type="submit" disabled>' + fill(txt) + '</button>';
     let inner;
     if (!U.booted) inner = '<span class="lbl">' + blobs('WAKING BUCKY UP') + '</span>';
     else if (!U.gateOk) {
-      inner = '<form class="form" data-form="gate"><label class="lbl" for="sitepass">SITE PASSWORD</label>' +
-        '<input type="password" id="sitepass" autocomplete="off" required>' + err +
-        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? blobs('Checking') : 'Enter') + '</button></form>';
+      inner = '<form class="form" data-form="gate">' +
+        '<input type="password" id="sitepass" autocomplete="off" placeholder="Site password" aria-label="Site password" required>' + err +
+        (U.loading ? busyBtn('Checking') : '<button class="btn cream primary" type="submit">Enter</button>') + '</form>';
     } else {
-      inner = '<form class="form" data-form="login"><label class="lbl" for="email">GMAIL</label>' +
-        '<input type="email" id="email" autocomplete="username" value="' + esc(API.store.get('bucky.email') || '') + '" required>' +
-        '<label class="lbl" for="pass">PASSWORD</label><input type="password" id="pass" autocomplete="current-password" required>' + err +
-        '<button class="btn cream primary" type="submit" ' + (U.loading ? 'disabled' : '') + '>' + (U.loading ? blobs('Signing in') : 'Sign in') + '</button></form>';
+      inner = '<form class="form" data-form="login">' +
+        '<input type="email" id="email" autocomplete="username" placeholder="Gmail" aria-label="Gmail" value="' + esc(API.store.get('bucky.email') || '') + '" required>' +
+        '<input type="password" id="pass" autocomplete="current-password" placeholder="Password" aria-label="Password" required>' + err +
+        (U.loading ? busyBtn('Signing in') : '<button class="btn cream primary" type="submit">Sign in</button>') +
+        '<button class="link forgot" type="button" data-act="forgot">Did you forget your password?</button></form>';
     }
     return '<div class="grid"><h1 class="z" style="grid-column:1/span 7;margin-top:110px;font-size:128px;line-height:.92" aria-label="Bucky Publisher">' +
       kinetic('Bucky') + '<br>' + kinetic('Publisher', 150) + '</h1>' +
@@ -74,7 +96,7 @@
       '<button class="nav ' + (U.view === 'tasks' ? 'on' : '') + '" data-act="view" data-v="tasks">MY TASKS ' + open + '</button>' +
       (S.isReviewer ? '<button class="nav ' + (U.view === 'review' ? 'on' : '') + '" data-act="view" data-v="review">TO REVIEW ' + queue().length + '</button>' : '') +
       '<button class="nav ' + (U.view === 'docs' ? 'on' : '') + '" data-act="view" data-v="docs">DOCS</button>' +
-      '</nav>';
+      '<button class="navx signout" data-act="signout">SIGN OUT</button></nav>';
   }
 
   function progressScreen() {
@@ -82,32 +104,18 @@
     const now = (S.milestones || []).find((m) => m.mineOpen) || cur;
     const rows = (S.milestones || []).map((m, i) =>
       '<button class="msrow rowin" data-act="ms" data-ms="' + esc(m.id) + '" style="animation-delay:' + (500 + i * 90) + 'ms">' +
-      '<span class="lbl" style="grid-column:span 1;font-size:12px">' + String(i + 1).padStart(2, '0') + '</span>' +
-      '<span style="grid-column:span 3;font-weight:600;font-size:22px;text-transform:uppercase;letter-spacing:.02em">' + esc(m.name) + '</span>' +
-      '<span style="grid-column:span 2;font-family:var(--mono);font-size:12px">' + esc(m.dates) + '</span>' +
-      '<span class="track"><span class="fill bar" style="width:' + m.pct + '%;animation-delay:' + (700 + i * 90) + 'ms"></span></span>' +
-      '<span style="grid-column:span 1;font-weight:700;font-size:22px;text-align:right;color:' + (i === 0 ? 'var(--orange)' : 'var(--stone)') + '">' + m.pct + '%</span>' +
-      '<span style="grid-column:span 2;font-size:14px;text-align:right">' + (!m.planned ? 'Not planned yet' : m.mineOpen ? plural(m.mineOpen, 'task for you', 'tasks for you') : 'Nothing open for you') + '</span></button>').join('');
+      (m.pct > 0 ? '<span class="msliq" style="--w:' + m.pct + '%;animation-delay:' + (700 + i * 90) + 'ms"></span>' : '') +
+      '<span style="grid-column:span 4;font-weight:600;font-size:22px;text-transform:uppercase;letter-spacing:.02em">' + esc(m.name) + '</span>' +
+      '<span style="grid-column:span 3;font-family:var(--mono);font-size:12px">' + esc(m.dates) + '</span>' +
+      '<span style="grid-column:span 2;font-weight:700;font-size:22px;text-align:right;color:var(--cream)">' + m.pct + '%</span>' +
+      '<span style="grid-column:span 3;font-size:14px;text-align:right">' + (!m.planned ? 'Not planned yet' : m.mineOpen ? plural(m.mineOpen, 'task for you', 'tasks for you') : 'Tasks finished') + '</span></button>').join('');
     return '<div class="grid">' + nav() +
       '<h1 class="z" style="grid-column:1/span 8;margin-top:28px;font-size:84px" aria-label="Current progress">' + kinetic('Current progress') + '</h1>' +
       '<div class="z" style="grid-column:1/span 8;display:flex;align-items:flex-end;gap:40px;margin-top:14px;z-index:2">' +
       '<div class="rise" id="hero" style="font-weight:700;font-size:210px;line-height:.85;letter-spacing:-.03em;color:var(--orange)">0%</div>' +
       '<button class="glass current pin" data-act="ms" data-ms="' + esc(now.id) + '" style="animation-delay:600ms"><span style="display:flex;flex-direction:column;gap:2px"><span class="lbl" style="font-size:10px">' + esc(now.name).toUpperCase() + '</span>' +
-      '<span style="font-size:17px;font-weight:600">' + (now.mineOpen ? plural(now.mineOpen, 'task for you', 'tasks for you') : 'Nothing open for you') + '</span></span><span aria-hidden="true" style="font-size:20px">&#8594;</span></button></div>' +
+      '<span style="font-size:17px;font-weight:600">' + (now.mineOpen ? plural(now.mineOpen, 'task for you', 'tasks for you') : 'TASKS FINISHED') + '</span></span><span aria-hidden="true" style="font-size:20px">&#8594;</span></button></div>' +
       '<div class="glass ms z">' + rows + '</div></div>';
-  }
-
-  function gifPicker() {
-    const q = U.gifQuery.trim().toLowerCase();
-    const hits = window.GIFS.filter((g) => !q || (g.label + ' ' + g.tags).toLowerCase().includes(q));
-    return '<div class="picker"><input type="text" id="gifq" placeholder="Search GIFs" value="' + esc(U.gifQuery) + '">' +
-      '<div class="tiles">' + hits.map((g, i) => window.gifTile(g.id, 'data-act="gif" data-id="' + g.id + '" style="animation-delay:' + i * 40 + 'ms"', 'tile')).join('') + '</div></div>';
-  }
-
-  function gifRow(field) {
-    const sel = U[field + 'Gif'];
-    return '<div class="gifrow">' + (sel ? window.gifTile(sel) + '<button class="link" style="color:var(--stone);font-size:13px" data-act="nogif" data-f="' + field + '">Remove</button>' : '') +
-      '<button class="gifbtn" data-act="gifs" data-f="' + field + '">GIF</button></div>' + (U.gifFor === field ? gifPicker() : '');
   }
 
   function taskCard(t) {
@@ -118,10 +126,10 @@
     const editing = t.status === 'In progress' || t.status === 'Retake' || (isPending && U.resend === t.id);
     let h = '<div class="glass card pin z" style="animation-delay:400ms">' +
       '<div class="head"><h2>' + esc(t.name) + '</h2>' + pill(t.status) + '</div>' +
-      '<div class="field"><span class="lbl">DESCRIPTION</span><span class="body">' + esc(t.dod) + '</span></div>';
+      '<span class="body">' + esc(t.dod) + '</span>';
     if (t.status === 'Retake') {
       h += '<div class="feedback"><span class="field" style="flex:1"><span class="lbl">' + esc((t.retakeBy || 'REVIEWER').toUpperCase()) + ' ASKED FOR CHANGES</span>' +
-        '<span class="body">' + esc(t.feedback) + '</span></span>' + (t.feedbackGif ? window.gifTile(t.feedbackGif) : '') + '</div>';
+        '<span class="body">' + esc(t.feedback) + '</span></span></div>';
     }
     if (isPending) {
       h += '<div class="field" style="gap:6px"><span class="big">Sent.</span><span class="muted">Waiting for ' + esc(names(t.reviewers)) + '. Bucky will ping you on Discord when it\u2019s reviewed.</span></div>';
@@ -131,7 +139,7 @@
     if (t.status === 'Approved') h += '<div class="field" style="gap:6px"><span class="big" style="color:var(--orange)">Approved.</span><span class="muted">Nothing left to do here.</span></div>';
     if (t.status === 'To do') {
       if (t.blockers.length) h += '<span style="font-size:14px;color:var(--stone)">Usually starts after ' + esc(t.blockers.join(', ')) + '.</span>';
-      h += '<div><button class="btn primary" data-act="start" ' + (busy ? 'disabled' : '') + '>' + (busy ? blobs('Starting') : 'Start task') + '</button></div>';
+      h += '<div>' + (busy ? '<button class="btn primary filling" id="busybtn" disabled>' + fill('Starting') + '</button>' : '<button class="btn primary" data-act="start">Start task</button>') + '</div>';
     }
     if (editing) {
       const noFiles = !t.slots.length, missing = t.slots.filter((s, i) => !picks[i]).length;
@@ -145,13 +153,16 @@
       if (!noFiles && !U.noteOpen) h += '<button class="link" data-act="note">+ Add a note</button>';
       if (noFiles || U.noteOpen) {
         h += '<div class="field"><label class="lbl" for="note">' + (noFiles ? 'COMMENT' : 'NOTE FOR THE REVIEWER') + '</label>' +
-          '<textarea id="note" rows="2">' + esc(U.note) + '</textarea>' + gifRow('note') + '</div>';
+          '<textarea id="note" rows="2">' + esc(U.note) + '</textarea></div>';
       }
       const ready = !busy && (noFiles ? !!U.note.trim() : missing === 0);
-      const lbl = busy ? (U.finishing ? blobs('Finishing') : up ? blobs('Uploading ' + pctOf(sum(up.done), up.total) + '%') : blobs('Sending')) : (!noFiles && missing) ? plural(missing, 'file missing', 'files missing') : isPending ? 'Send again' : noFiles ? 'Send for review' : 'Publish for review';
-      h += '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="btn primary" id="publish" data-act="publish" data-nofiles="' + (noFiles ? 1 : 0) + '" data-missing="' + missing + '" ' + (ready ? '' : 'disabled') + '>' + lbl + '</button>' +
+      const lbl = (!noFiles && missing) ? plural(missing, 'file missing', 'files missing') : isPending ? 'Send again' : noFiles ? 'Send for review' : 'Publish for review';
+      const pubBusy = busy && U.busyAct !== 'unstart';
+      h += '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+        (pubBusy ? '<button class="btn primary filling" id="busybtn" disabled>' + fill(U.progText || 'Sending') + '</button>'
+                 : '<button class="btn primary" id="publish" data-act="publish" data-nofiles="' + (noFiles ? 1 : 0) + '" data-missing="' + missing + '" ' + (ready && !busy ? '' : 'disabled') + '>' + lbl + '</button>') +
         (isPending && !busy ? '<button class="link" style="align-self:center" data-act="noresend">Cancel</button>' : '') +
-        (t.status === 'In progress' && !busy ? '<button class="link" style="align-self:center;color:var(--stone)" data-act="unstart">' + (U.busyAct === 'unstart' ? blobs('Moving') : 'Started by mistake? Move back to To do') + '</button>' : '') + '</div>';
+        (t.status === 'In progress' && !pubBusy ? (U.busyAct === 'unstart' && busy ? '<button class="outline filling" id="busybtn" disabled>' + fill('Going back') + '</button>' : '<button class="outline" data-act="unstart"' + (busy ? ' disabled' : '') + '>Go back</button>') : '') + '</div>';
     }
     h += historyBlock(t) + '</div>';
     return h;
@@ -165,11 +176,11 @@
   function reviewCard(t) {
     const busy = U.busy === t.id, empty = !U.fb.trim();
     let h = '<div class="glass card pin z" style="gap:18px;animation-delay:400ms">' +
-      '<div class="head"><h2>' + esc(t.name) + '</h2>' + pill('Pending review') + '<span class="lbl">' + t.vtag + '</span></div>' +
-      '<div class="field"><span class="lbl">DESCRIPTION</span><span class="body">' + esc(t.dod) + '</span></div>';
-    if (t.note || t.noteGif) {
-      h += '<div style="display:flex;gap:16px;align-items:center"><span class="field" style="flex:1;gap:6px"><span class="lbl">NOTE FROM ' + esc(t.owners.toUpperCase()) + '</span>' +
-        '<span class="body">' + (t.note ? '\u201c' + esc(t.note) + '\u201d' : '') + '</span></span>' + (t.noteGif ? window.gifTile(t.noteGif) : '') + '</div>';
+      '<div class="head"><h2>' + esc(t.name) + ' <span class="lbl">' + t.vtag + '</span></h2>' + pill('Pending review') + '</div>' +
+      '<span class="body">' + esc(t.dod) + '</span>';
+    if (t.note) {
+      h += '<span class="field" style="gap:6px"><span class="lbl">NOTE FROM ' + esc(t.owners.toUpperCase()) + '</span>' +
+        '<span class="body">\u201c' + esc(t.note) + '\u201d</span></span>';
     }
     if (t.slots.length) {
       const files = t.files || [];
@@ -180,9 +191,11 @@
         '<div class="slot filled"><span class="nm"><span style="display:flex;flex-direction:column;gap:2px">' + esc(f.label) + '<span class="file">' + esc(f.name) + ' \u00b7 ' + mb(f.size) + '</span></span></span>' +
         '<span style="display:flex;gap:8px"><a class="outline linkbtn" href="' + esc(f.view) + '" target="_blank" rel="noopener">Open</a><a class="outline linkbtn" href="' + esc(f.download) + '" target="_blank" rel="noopener">Download</a></span></div></div>').join('');
     }
-    h += '<div class="field"><label class="lbl" for="fb">COMMENT</label><textarea id="fb" rows="2" placeholder="Needed for a retake. Optional to approve.">' + esc(U.fb) + '</textarea>' + gifRow('fb') + '</div>' +
-      '<div style="display:flex;gap:14px;flex-wrap:wrap"><button class="btn primary" data-act="approve" ' + (busy ? 'disabled' : '') + '>' + (busy && U.busyAct === 'approve' ? blobs('Approving') : 'Approve') + '</button>' +
-      '<button class="btn line" id="retake" data-act="retake" ' + (busy || empty ? 'disabled' : '') + '>' + (busy && U.busyAct === 'retake' ? blobs('Sending') : 'Retake') + '</button></div>' + historyBlock(t) + '</div>';
+    h += '<div class="field"><label class="lbl" for="fb">COMMENT</label><textarea id="fb" rows="2" placeholder="Needed for a retake. Optional to approve.">' + esc(U.fb) + '</textarea></div>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+      (busy && U.busyAct === 'approve' ? '<button class="btn primary filling" id="busybtn" disabled>' + fill('Approving') + '</button>' : '<button class="btn primary" data-act="approve" ' + (busy ? 'disabled' : '') + '>Approve</button>') +
+      (busy && U.busyAct === 'retake' ? '<button class="btn line filling" id="busybtn" disabled>' + fill('Sending') + '</button>' : '<button class="btn line" id="retake" data-act="retake" ' + (busy || empty ? 'disabled' : '') + '>Retake</button>') +
+      '</div>' + historyBlock(t) + '</div>';
     return h;
   }
 
@@ -248,10 +261,9 @@
 
   function chip() {
     const c = $('chip');
-    let h = '';
-    if (S.me) h += '<span>' + esc(S.me.full).toUpperCase() + '</span><button class="navx" style="margin:0" data-act="refresh">' + (U.refreshing ? blobs('REFRESHING') : 'REFRESH') + '</button>' +
-      '<button class="navx" style="margin:0" data-act="signout">SIGN OUT</button>';
-    if (API.MOCK) h += '<span><b>TEST DATA</b> \u00b7 NOTHING HERE TOUCHES GOOGLE</span><button class="navx" style="margin:0" data-act="reset">RESET TEST DATA</button>';
+    if (!S.me) { c.innerHTML = ''; return; }
+    let h = '<span>v' + VERSION + ' \u00b7 \u00a9 Eduardo J. Reyes 2026</span>';
+    if (API.MOCK) h += '<span><b>TEST DATA</b></span><button class="navx" style="margin:0" data-act="reset">RESET TEST DATA</button>';
     c.innerHTML = h;
   }
 
@@ -262,7 +274,7 @@
       '<span class="av">' + (ev.kind === 'error' ? '!' : 'B') + '</span><span style="display:flex;flex-direction:column;gap:6px;min-width:0">' +
       '<span class="lbl">' + (ev.kind === 'error' ? 'BUCKY \u00b7 HEADS UP' : 'BUCKY \u00b7 DISCORD') + '</span>' +
       '<span class="msg">' + (ev.mention ? '<span class="who">' + esc(ev.mention) + '</span> ' : '') + esc(ev.text) + '</span>' +
-      (ev.quote ? '<span class="quote">' + esc(ev.quote) + '</span>' : '') + (ev.gif ? window.gifTile(ev.gif) : '') + '</span></div>';
+      (ev.quote ? '<span class="quote">' + esc(ev.quote) + '</span>' : '') + '</span></div>';
     toastT = setTimeout(() => { el.innerHTML = ''; }, ev.kind === 'error' ? 7000 : 5000);
   }
 
@@ -276,16 +288,19 @@
     if (data && data.event) { if (data.event.kind !== 'error') clean(); toast(data.event); if (data.event.kind === 'good') Bucky.burst(); }
   }
 
-  async function run(action, payload) {
+  async function run(action, payload, progText) {
+    if (progText) startProg(progText);
     try {
       const data = await API.call(action, payload);
+      if (progText) { setProg(100); await sleep(250); }
       apply(data);
       return data;
     } catch (e) {
       if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' });
       return null;
     } finally {
-      U.busy = null; U.loading = false; U.up = null; U.finishing = false; U.busyAct = null; U.refreshing = false;
+      clearInterval(progT); U.prog = 0;
+      U.busy = null; U.loading = false; U.up = null; U.busyAct = null;
       render();
     }
   }
@@ -294,41 +309,50 @@
 
   async function publish(t) {
     const picks = U.picks[t.id] || {};
-    U.busy = t.id; U.sel = t.id; render();
-    if (!t.slots.length) { await run('finishUpload', { taskId: t.id, note: U.note, gif: U.noteGif || '' }); return; }
+    U.busy = t.id; U.sel = t.id; U.busyAct = 'publish'; U.prog = 0; U.progText = 'Sending'; render();
+    if (!t.slots.length) { await run('finishUpload', { taskId: t.id, note: U.note }, 'Sending'); return; }
+    startProg('Preparing', 0, 5);
     let begun;
     try {
       begun = await API.call('beginUpload', { taskId: t.id, origin: location.origin,
         files: t.slots.map((s, i) => ({ i, name: picks[i].name, size: picks[i].size, type: picks[i].type })) });
     } catch (e) {
-      U.busy = null; if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' }); render(); return;
+      clearInterval(progT); U.busy = null; U.busyAct = null; if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' }); render(); return;
     }
     U.up = { task: t.id, done: {}, total: t.slots.reduce((a, s, i) => a + picks[i].size, 0) };
+    setProg(5, 'Uploading');
     render();
     try {
       for (const u of begun.uploads) {
         await API.upload(picks[u.i], u.url, (sent) => { U.up.done[u.i] = sent; paintProgress(t); });
       }
     } catch (e) {
-      U.busy = null; U.up = null; toast({ text: e.message, kind: 'error' }); render(); return;
+      clearInterval(progT); U.busy = null; U.busyAct = null; U.up = null; toast({ text: e.message, kind: 'error' }); render(); return;
     }
-    const note = U.note, gif = U.noteGif || '';
+    const note = U.note;
     delete U.picks[t.id];
     Bucky.burst();
-    U.finishing = true; render();
-    await run('finishUpload', { taskId: t.id, version: begun.version, note, gif });
+    startProg('Finishing', 95, 99);
+    try {
+      const data = await API.call('finishUpload', { taskId: t.id, version: begun.version, note });
+      setProg(100); await sleep(250);
+      apply(data);
+    } catch (e) {
+      if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' });
+    } finally {
+      clearInterval(progT); U.prog = 0; U.busy = null; U.busyAct = null; U.up = null; render();
+    }
   }
 
   function paintProgress(t) {
     const up = U.up, picks = U.picks[t.id] || {};
     if (!up) return;
     Object.keys(up.done).forEach((i) => {
-      const f = picks[i], fill = $('upfill-' + i), txt = $('uptext-' + i);
-      if (fill && f) fill.style.width = pctOf(up.done[i], f.size) + '%';
+      const f = picks[i], bar = $('upfill-' + i), txt = $('uptext-' + i);
+      if (bar && f) bar.style.width = pctOf(up.done[i], f.size) + '%';
       if (txt) txt.textContent = upText(up, Number(i), f);
     });
-    const b = $('publish');
-    if (b) b.innerHTML = blobs('Uploading ' + pctOf(sum(up.done), up.total) + '%');
+    setProg(5 + 90 * sum(up.done) / (up.total || 1), 'Uploading');
   }
 
   function pickFile(t, i) {
@@ -353,23 +377,20 @@
     const t = current();
     switch (a) {
       case 'signout': API.call('logout').catch(() => {}); signedOut(); render(); break;
-      case 'refresh': U.refreshing = true; chip(); run('state'); break;
       case 'reset': try { ['bucky.mock', 'bucky.mockprops', 'bucky.mockdrive', 'bucky.token'].forEach((k) => localStorage.removeItem(k)); } catch (e) {} location.reload(); break;
       case 'view': U.view = el.dataset.v; U.sel = null; clean(); render(); break;
       case 'ms': U.view = 'tasks'; U.ms = el.dataset.ms; U.sel = null; clean(); render(); break;
       case 'sel': U.sel = el.dataset.id; clean(); render(); break;
-      case 'start': U.sel = t.id; U.busy = t.id; render(); run('start', { taskId: t.id }); break;
+      case 'start': U.sel = t.id; U.busy = t.id; U.busyAct = 'start'; U.prog = 0; U.progText = 'Starting'; render(); run('start', { taskId: t.id }, 'Starting'); break;
+      case 'forgot': forgot(); break;
       case 'pick': pickFile(t, Number(el.dataset.i)); break;
       case 'note': U.noteOpen = true; render(); $('note').focus(); break;
-      case 'resend': U.resend = t.id; U.note = t.note || ''; U.noteGif = t.noteGif || null; U.noteOpen = !!t.note; render(); break;
+      case 'resend': U.resend = t.id; U.note = t.note || ''; U.noteOpen = !!t.note; render(); break;
       case 'noresend': U.resend = null; delete U.picks[t.id]; render(); break;
-      case 'unstart': U.busy = t.id; U.busyAct = 'unstart'; render(); run('unstart', { taskId: t.id }); break;
-      case 'gifs': U.gifFor = U.gifFor === el.dataset.f ? null : el.dataset.f; U.gifQuery = ''; render(); break;
-      case 'gif': U[U.gifFor + 'Gif'] = el.dataset.id; U.gifFor = null; render(); break;
-      case 'nogif': U[el.dataset.f + 'Gif'] = null; render(); break;
+      case 'unstart': U.busy = t.id; U.busyAct = 'unstart'; U.prog = 0; U.progText = 'Going back'; render(); run('unstart', { taskId: t.id }, 'Going back'); break;
       case 'publish': publish(t); break;
-      case 'approve': U.busy = t.id; U.busyAct = 'approve'; render(); Bucky.burst(); run('approve', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
-      case 'retake': if (!U.fb.trim()) return; U.busy = t.id; U.busyAct = 'retake'; render(); run('retake', { taskId: t.id, comment: U.fb, gif: U.fbGif || '' }); break;
+      case 'approve': U.busy = t.id; U.busyAct = 'approve'; U.prog = 0; U.progText = 'Approving'; render(); Bucky.burst(); run('approve', { taskId: t.id, comment: U.fb }, 'Approving'); break;
+      case 'retake': if (!U.fb.trim()) return; U.busy = t.id; U.busyAct = 'retake'; U.prog = 0; U.progText = 'Sending'; render(); run('retake', { taskId: t.id, comment: U.fb }, 'Sending'); break;
     }
   }
 
@@ -377,26 +398,40 @@
     U.error = '';
     if (form === 'gate') {
       const p = $('sitepass').value;
-      U.loading = true; render();
-      try { await API.call('gate', { sitePass: p }); API.store.set('bucky.site', p); U.gateOk = true; }
+      U.loading = true; U.prog = 0; U.progText = 'Checking'; render(); startProg('Checking');
+      try { await API.call('gate', { sitePass: p }); setProg(100); await sleep(200); API.store.set('bucky.site', p); U.gateOk = true; }
       catch (e) { U.error = e.message; }
-      U.loading = false; render();
+      clearInterval(progT); U.loading = false; render();
       const em = $('email'); if (em) (em.value ? $('pass') : em).focus();
       else if ($('sitepass')) $('sitepass').focus();
     } else {
       const email = $('email').value.trim(), password = $('pass').value;
-      U.loading = true; render();
+      API.store.set('bucky.email', email);
+      U.loading = true; U.prog = 0; U.progText = 'Signing in'; render(); startProg('Signing in');
       try {
         const d = await API.call('login', { email, password });
-        API.store.set('bucky.token', d.token); API.store.set('bucky.email', email);
+        setProg(100); await sleep(250);
+        API.store.set('bucky.token', d.token);
         apply(d);
       } catch (e) {
         U.error = e.message;
         if (/site password/i.test(e.message)) { API.store.set('bucky.site', null); U.gateOk = false; }
       }
-      U.loading = false; render();
+      clearInterval(progT); U.loading = false; render();
       if (!S.me && $('pass')) $('pass').focus();
     }
+  }
+
+  // "Did you forget your password?": Bucky tells Eduardo on Discord
+  async function forgot() {
+    const em = $('email'), email = em ? em.value.trim() : '';
+    if (!email) { U.error = 'Type your Gmail first, then press "Did you forget your password?"'; render(); if ($('email')) $('email').focus(); return; }
+    API.store.set('bucky.email', email);
+    try {
+      await API.call('forgot', { email });
+      U.error = '';
+      toast({ text: 'Eduardo got a message. He’ll send you a new password.', kind: 'good' });
+    } catch (e) { U.error = e.message; render(); }
   }
 
   function wire() {
@@ -426,11 +461,6 @@
         U.fb = e.target.value;
         const r = $('retake');
         if (r) r.disabled = !U.fb.trim() || !!U.busy;
-      } else if (e.target.id === 'gifq') {
-        U.gifQuery = e.target.value;
-        const pos = e.target.selectionStart;
-        render();
-        const q = $('gifq'); q.focus(); q.setSelectionRange(pos, pos);
       }
     });
     window.addEventListener('beforeunload', (e) => { if (U.up) { e.preventDefault(); e.returnValue = ''; } });
