@@ -112,3 +112,21 @@ bad('unstart', { taskId: '1.2' }, /Someone changed it/);
 assert.ok(mockDiscord.some((m) => /@hir0roo/.test(m.content)), 'Luna tagged by Discord username');
 assert.deepEqual(st2.links.map((l) => !!l.url), [true, true, false]);
 console.log('backend: extra checks good');
+
+// Gantt <-> Tasks: the app writes both; hand edits in either one copy across
+const ss = window.SpreadsheetApp.getActiveSpreadsheet();
+const ganttRow = (id) => ss.getSheetByName('PreStart_Gantt').getDataRange().getDisplayValues().find((r) => r[0] === id);
+const taskRow = (id) => { const v = ss.getSheetByName('Tasks').getDataRange().getDisplayValues(); return [v[0], v.find((r) => r[0] === id)]; };
+assert.equal(ganttRow('0.1')[3], 'Approved', 'app status reaches the Gantt');
+const G = ss.getSheetByName('PreStart_Gantt');
+const gr = G.getDataRange().getDisplayValues().findIndex((r) => r[0] === '4.2') + 1;
+G.getRange(gr, 4).setValue('In progress'); G.getRange(gr, 6).setValue('20 Nov');
+onEdit({ range: G.getRange(gr, 4, 1, 3) });
+let [th, tr] = taskRow('4.2');
+assert.equal(tr[th.indexOf('Status')], 'In progress');
+assert.equal(tr[th.indexOf('Due')], '20 Nov');
+const TS = ss.getSheetByName('Tasks'), trow = TS.getDataRange().getDisplayValues().findIndex((r) => r[0] === '4.3') + 1;
+TS.getRange(trow, th.indexOf('Start') + 1).setValue('5 Nov');
+onEdit({ range: TS.getRange(trow, th.indexOf('Start') + 1) });
+assert.equal(ganttRow('4.3')[4], '5 Nov');
+console.log('backend: gantt sync good');

@@ -11,16 +11,29 @@
   const persist = () => save('bucky.mock', book);
   function sheet(name) {
     if (!book[name]) return null;
-    return {
-      getDataRange: () => ({
-        getDisplayValues: () => {
-          const rows = book[name], w = Math.max(...rows.map((r) => r.length));
-          return rows.map((r) => Array.from({ length: w }, (_, i) => (r[i] == null ? '' : String(r[i]))));
-        }
-      }),
-      getRange: (r, c) => ({ setValue: (v) => { const rows = book[name]; while (rows.length < r) rows.push([]); const row = rows[r - 1]; while (row.length < c) row.push(''); row[c - 1] = String(v); persist(); } }),
-      appendRow: (arr) => { book[name].push(arr.map(String)); persist(); }
+    const rows = () => book[name];
+    const width = () => Math.max(...rows().map((r) => r.length));
+    const cell = (r, c) => { const row = rows()[r - 1] || []; return row[c - 1] == null ? '' : row[c - 1]; };
+    const sh = {
+      getName: () => name,
+      getLastRow: () => rows().length,
+      getLastColumn: () => width(),
+      getDataRange: () => sh.getRange(1, 1, rows().length, width()),
+      getRange: (r, c, nr, nc) => {
+        nr = nr || 1; nc = nc || 1;
+        const grid = (f) => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => f(cell(r + i, c + j))));
+        return {
+          getSheet: () => sh, getRow: () => r, getColumn: () => c, getNumRows: () => nr, getNumColumns: () => nc,
+          getDisplayValues: () => grid((v) => String(v)),
+          getValues: () => grid((v) => v),
+          getValue: () => cell(r, c),
+          getDisplayValue: () => String(cell(r, c)),
+          setValue: (v) => { const rs = rows(); while (rs.length < r) rs.push([]); const row = rs[r - 1]; while (row.length < c) row.push(''); row[c - 1] = String(v); persist(); }
+        };
+      },
+      appendRow: (arr) => { rows().push(arr.map(String)); persist(); }
     };
+    return sh;
   }
   G.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: sheet }) };
 

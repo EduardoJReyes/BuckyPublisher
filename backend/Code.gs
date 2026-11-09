@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -186,6 +186,55 @@ function writeTask(D, t, values) {
     if (c === -1) fail('The Tasks tab has no "' + h + '" column.');
     D.sheet.getRange(t.row, c + 1).setValue(values[h]);
   });
+  // keep the Gantt in step (script writes don't fire onEdit)
+  try {
+    var g = {};
+    Object.keys(values).forEach(function (h) { if (TASKS_TO_GANTT[h]) g[TASKS_TO_GANTT[h]] = values[h]; });
+    if (Object.keys(g).length) writeRow(GANTT, t.id, g);
+  } catch (e) { console.warn('Gantt sync failed', e); }
+}
+
+// ---------------------------------------------------------------- Gantt <-> Tasks
+// Status, Start and End can be edited in PreStart_Gantt or in Tasks; the other one follows.
+var GANTT = 'PreStart_Gantt';
+var GANTT_TO_TASKS = { 'Status': 'Status', 'Start': 'Start', 'End': 'Due' };
+var TASKS_TO_GANTT = { 'Status': 'Status', 'Start': 'Start', 'Due': 'End' };
+
+/** Write values (by header) into the row of sheet `name` whose ID (column A) is `id`. */
+function writeRow(name, id, values) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sh || sh.getLastRow() < 2) return false;
+  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
+  var ids = sh.getRange(1, 1, sh.getLastRow(), 1).getDisplayValues().map(function (r) { return String(r[0]).trim(); });
+  var row = ids.indexOf(String(id).trim());
+  if (row < 1) return false;
+  Object.keys(values).forEach(function (h) {
+    var c = head.indexOf(h);
+    if (c !== -1) sh.getRange(row + 1, c + 1).setValue(values[h]);
+  });
+  return true;
+}
+
+/** Simple trigger: runs when someone edits the sheet by hand. */
+function onEdit(e) {
+  try {
+    var range = e.range, sh = range.getSheet(), name = sh.getName();
+    var map = name === GANTT ? GANTT_TO_TASKS : name === 'Tasks' ? TASKS_TO_GANTT : null;
+    if (!map) return;
+    var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
+    var r0 = range.getRow(), c0 = range.getColumn(), nr = range.getNumRows(), nc = range.getNumColumns();
+    var cols = [];
+    for (var c = c0; c < c0 + nc; c++) if (map[head[c - 1]]) cols.push(c);
+    if (!cols.length) return;
+    var ids = sh.getRange(r0, 1, nr, 1).getDisplayValues();
+    for (var i = 0; i < nr; i++) {
+      if (r0 + i < 2 || !String(ids[i][0]).trim()) continue;
+      var out = {};
+      cols.forEach(function (c) { out[map[head[c - 1]]] = sh.getRange(r0 + i, c).getValue(); });
+      if (name === GANTT && out[COL.status] !== undefined) out[COL.updated] = stamp();
+      writeRow(name === GANTT ? 'Tasks' : GANTT, ids[i][0], out);
+    }
+  } catch (err) { console.warn('onEdit sync failed', err); }
 }
 
 function stamp() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'); }
