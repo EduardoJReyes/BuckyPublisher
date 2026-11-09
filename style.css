@@ -211,12 +211,12 @@ a.doc:active{transform:scale(.97,.94);transition-duration:.08s}
 .liq,.msliq{position:absolute;left:0;top:0;bottom:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg,#F7A27E 0%,#EB5E28 45%,#B9441A 100%);box-shadow:inset 0 2px 0 rgba(255,252,242,.25)}
 .liq{transition:width .3s linear}
-.liq::after,.msliq::after{content:"";position:absolute;top:-28px;bottom:-28px;right:-12px;width:13px;
-  background:linear-gradient(180deg,#F7A27E 0%,#EB5E28 45%,#B9441A 100%);
-  -webkit-mask:radial-gradient(ellipse 13px 9px at 0 50%,#000 98%,transparent 100%) 0 0/13px 28px repeat-y;
-  mask:radial-gradient(ellipse 13px 9px at 0 50%,#000 98%,transparent 100%) 0 0/13px 28px repeat-y;
-  animation:liqwave 1.1s linear infinite}
-@keyframes liqwave{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 -28px;mask-position:0 -28px}}
+.liq::after,.msliq::after{content:"";position:absolute;top:0;bottom:0;right:-17px;width:18px;
+  background:inherit;box-shadow:none;
+  -webkit-mask:radial-gradient(ellipse 18px 13px at 0 50%,#000 97%,transparent 100%) 0 0/18px 32px repeat-y;
+  mask:radial-gradient(ellipse 18px 13px at 0 50%,#000 97%,transparent 100%) 0 0/18px 32px repeat-y;
+  animation:liqwave 1.3s linear infinite}
+@keyframes liqwave{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 -32px;mask-position:0 -32px}}
 .liqtxt{position:relative;z-index:1;text-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap}
 .msrow{position:relative;overflow:hidden;isolation:isolate;border-radius:4px;padding:0 14px;box-sizing:border-box}
 .msrow > span:not(.msliq){position:relative;z-index:1}
