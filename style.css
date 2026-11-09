@@ -223,4 +223,4 @@ a.doc:active{transform:scale(.97,.94);transition-duration:.08s}
 .calm .msliq{animation:none}
 @media (prefers-reduced-motion:reduce){.liq::after,.msliq::after{animation:none!important}.msliq{animation:none!important;width:var(--w)}}
 
-.filling[aria-busy]{display:flex;align-items:center;justify-content:center}
+.filling[aria-busy]{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%}
