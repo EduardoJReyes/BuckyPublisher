@@ -1,5 +1,5 @@
 # Pushes backend/Code.gs to the Apps Script project and updates the live web app deployment
-# (same /exec URL). Needs two repo secrets: CLASPRC_JSON and SCRIPT_ID. Skips itself until they exist.
+# (same /exec URL). Needs the repo secret CLASPRC_JSON (a clasp login). Skips itself until it exists.
 name: Deploy backend
 on:
   push:
@@ -7,6 +7,7 @@ on:
     paths: ['backend/Code.gs']
   workflow_dispatch:
 env:
+  SCRIPT_ID: 1AXjK_vnRVqT29XALM9ZCUeHDl32mETXoq-E3GyVqfr7xgSmIAHmURSax
   DEPLOYMENT_ID: AKfycbzuu_iFWmmueZtKo1YRAU1BrpDc_Dwlh3G6YVsdCgIyhI9Ni_gTK1zgBkkME1ut8ljQcw
 jobs:
   deploy:
@@ -15,15 +16,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check secrets
         id: ready
-        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}', SCRIPT_ID: '${{ secrets.SCRIPT_ID }}' }
+        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}' }
         run: |
-          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ]; then echo "Secrets not set yet, skipping."; echo "go=no" >> $GITHUB_OUTPUT; else echo "go=yes" >> $GITHUB_OUTPUT; fi
+          if [ -z "$CLASPRC_JSON" ]; then echo "Secrets not set yet, skipping."; echo "go=no" >> $GITHUB_OUTPUT; else echo "go=yes" >> $GITHUB_OUTPUT; fi
       - uses: actions/setup-node@v4
         if: steps.ready.outputs.go == 'yes'
         with: { node-version: 20 }
       - name: Push and deploy
         if: steps.ready.outputs.go == 'yes'
-        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}', SCRIPT_ID: '${{ secrets.SCRIPT_ID }}' }
+        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}' }
         run: |
           npm i -g @google/clasp@2.4.2
           printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
