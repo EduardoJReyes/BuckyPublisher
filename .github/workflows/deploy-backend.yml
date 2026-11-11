@@ -7,7 +7,7 @@ on:
     paths: ['backend/Code.gs']
   workflow_dispatch:
 env:
-  SCRIPT_ID: 1AXjK_vnRVqT29XALM9ZCUeHDl32mETXoq-E3GyVqfr7xgSmIAHmURSax
+  SCRIPT_ID: 10ctTOl4tGL-WjsJVxf8dCk3PefV1CZr4cOUYqJU97-nYJ3zVnriRk0gD
   DEPLOYMENT_ID: AKfycbzuu_iFWmmueZtKo1YRAU1BrpDc_Dwlh3G6YVsdCgIyhI9Ni_gTK1zgBkkME1ut8ljQcw
 jobs:
   deploy:
