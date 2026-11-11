@@ -1,0 +1,23 @@
+# Manual: archives every web app deployment except the one the site uses (and @HEAD, which can't be removed).
+name: Archive old deployments
+on: workflow_dispatch
+env:
+  SCRIPT_ID: 10ctTOl4tGL-WjsJVxf8dCk3PefV1CZr4cOUYqJU97-nYJ3zVnriRk0gD
+  KEEP: AKfycbzuu_iFWmmueZtKo1YRAU1BrpDc_Dwlh3G6YVsdCgIyhI9Ni_gTK1zgBkkME1ut8ljQcw
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}' }
+        run: |
+          npm i -g @google/clasp@2.4.2
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          mkdir /tmp/gas && cd /tmp/gas && printf '{"scriptId":"%s"}' "$SCRIPT_ID" > .clasp.json
+          clasp deployments | grep -o 'AKfy[A-Za-z0-9_-]*' > ids.txt || true
+          clasp deployments | grep '@HEAD' | grep -o 'AKfy[A-Za-z0-9_-]*' > head.txt || true
+          while read id; do
+            if [ "$id" = "$KEEP" ] || grep -qx "$id" head.txt; then echo "keep $id"; else clasp undeploy "$id" && echo "archived $id"; fi
+          done < ids.txt
+          clasp deployments
