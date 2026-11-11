@@ -1,7 +1,7 @@
 // Bucky Publisher UI. Data and actions go through BuckyAPI (api.js) to the Apps Script
 // backend. This file renders S (state from the backend) and U (local UI state).
 (function () {
-  const VERSION = '1.6.0';
+  const VERSION = '1.7.0';
   const API = window.BuckyAPI;
   let S = { me: null };         // state from the backend
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
@@ -372,7 +372,7 @@
     const g0 = sameScreen && scr.querySelector('.gantt'), gScroll = g0 ? [g0.scrollLeft, g0.scrollTop] : null;
     const e0 = scr.querySelector('.editor'), eScroll = e0 ? e0.scrollTop : 0;
     if (!S.me) { scr.innerHTML = signinScreen(); Bucky.setPose('signin'); }
-    else if (U.view === 'progress') { scr.innerHTML = progressScreen(); Bucky.setPose('progress'); if (!same) countUp(); else $('hero').textContent = S.avg + '%'; }
+    else if (U.view === 'progress') { scr.innerHTML = progressScreen(); Bucky.setPose('progress'); if (!same) { countUp(); if (S.avg > 0) Sound.pour(1600); } else $('hero').textContent = S.avg + '%'; }
     else if (U.view === 'docs') { scr.innerHTML = docsScreen(); Bucky.setPose('peek'); }
     else if (U.view === 'manager' && S.isManager) { scr.innerHTML = managerScreen(); Bucky.setPose('peek'); }
     else { scr.innerHTML = workScreen(); Bucky.setPose('peek'); }
@@ -407,7 +407,7 @@
   function chip() {
     const c = $('chip');
     if (!S.me) { c.innerHTML = ''; return; }
-    let h = '<span>v' + VERSION + ' \u00b7 \u00a9 Eduardo J. Reyes 2026</span>';
+    let h = '<span>v' + VERSION + ' \u00b7 \u00a9 Eduardo J. Reyes 2026</span><button class="navx" style="margin:0" data-act="sound">' + (Sound.isOn() ? 'SOUND ON' : 'SOUND OFF') + '</button>';
     if (API.MOCK) h += '<span><b>TEST DATA</b></span><button class="navx" style="margin:0" data-act="reset">RESET TEST DATA</button>';
     c.innerHTML = h;
   }
@@ -431,7 +431,7 @@
       if (prev !== S.me.key) { U.view = 'progress'; U.sel = null; clean(); U.picks = {}; U.edit = null; }
       if (U.view === 'manager' && !S.isManager) U.view = 'progress';
     }
-    if (data && data.event) { if (data.event.kind !== 'error') clean(); toast(data.event); if (data.event.kind === 'good') Bucky.burst(); }
+    if (data && data.event) { if (data.event.kind !== 'error') clean(); toast(data.event); if (data.event.kind === 'good') { Bucky.burst(); Sound.success(); } }
   }
 
   async function run(action, payload, progText) {
@@ -531,6 +531,7 @@
       case 'sel': U.sel = el.dataset.id; clean(); render(); break;
       case 'start': U.sel = t.id; U.busy = t.id; U.busyAct = 'start'; U.prog = 0; U.progText = 'Starting'; render(); run('start', { taskId: t.id }, 'Starting'); break;
       case 'forgot': forgot(); break;
+      case 'sound': Sound.setOn(!Sound.isOn()); chip(); break;
       case 'mvms': U.mvMs = el.dataset.ms; render(); break;
       case 'mvnew': U.edit = blankTask(); U.editNew = true; render(); { const f = document.querySelector('[data-f="id"]'); if (f) f.focus(); } break;
       case 'mvopen': { const x = (S.plan.tasks || []).find((k) => k.id === el.dataset.id); if (x) { U.edit = Object.assign({}, x); U.editNew = false; render(); } } break;
@@ -591,7 +592,13 @@
     const scr = document.getElementById('stage');
     scr.addEventListener('click', (e) => {
       const el = e.target.closest('[data-act]');
-      if (el && !el.disabled) act(el.dataset.act, el);
+      if (el && !el.disabled) {
+        const a = el.dataset.act;
+        if (a !== 'sound') Sound.tink(!/^(view|ms|mvms)$/.test(a));
+        act(a, el);
+      } else if (!e.target.closest('.glass, button, a, input, textarea, select, label') && Bucky.hit && Bucky.hit(e.clientX, e.clientY)) {
+        Sound.boing();
+      }
     });
     scr.addEventListener('submit', (e) => { const f = e.target.closest('[data-form]'); if (f) { e.preventDefault(); submit(f.dataset.form); } });
     scr.addEventListener('toggle', (e) => { if (e.target.tagName === 'DETAILS') U.histOpen = e.target.open; }, true);

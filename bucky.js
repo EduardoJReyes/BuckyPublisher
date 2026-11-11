@@ -44,7 +44,7 @@
   Tween.prototype.go = function (to, now) { this.from = this.at(now); this.to = to; this.t0 = now; };
 
   // ---- state -------------------------------------------------------------
-  const st = { pose: 'signin', hover: false, mx: 0, my: 0, down: false, lastPop: 0 };
+  const st = { pose: 'signin', hover: false, mx: 0, my: 0, down: false, lastPop: 0, w: [0, 0, 1], n: 0 };
   let gl, prog, loc, canvas, stage, root, dpr = 1, scaleK = 1;
   let parts = {}, heads = [], vis = [], t0 = performance.now(), lastNow = t0;
   const pose = new Tween([-200, 76, 1.2], 1100, EASE.pose);
@@ -298,6 +298,7 @@ void main(){
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(loc.uRes, canvas.width, canvas.height);
       gl.uniform3f(loc.uPose, w[0], w[1], w[2]);
+      st.w = w; st.n = n;
       gl.uniform4fv(loc.uBlob, blobData); gl.uniform4fv(loc.uShape, shapeData);
       gl.uniform1i(loc.uCount, n);
       gl.uniform2fv(loc.uTri, triData); gl.uniform1f(loc.uEar, fo); gl.uniform4fv(loc.uEarG, earG);
@@ -366,6 +367,18 @@ void main(){
     requestAnimationFrame(frame);
   }
 
-  window.Bucky = { init: () => init(), setPose: (p) => (window.Bucky === api ? setPose(p) : window.Bucky.setPose(p)), burst: () => burst() };
+  // is this screen point on Bucky's goo? (used for the poke sound)
+  function hit(clientX, clientY) {
+    if (!stage || !st.n) return false;
+    const r = stage.getBoundingClientRect(), k = 1280 / r.width;
+    const x = ((clientX - r.left) * k - st.w[0]) / st.w[2], y = ((clientY - r.top) * k - st.w[1]) / st.w[2];
+    for (let i = 0; i < st.n; i++) {
+      const cx = blobData[i * 4], cy = blobData[i * 4 + 1], rr = blobData[i * 4 + 2] * 1.1;
+      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < rr * rr) return true;
+    }
+    return false;
+  }
+
+  window.Bucky = { init: () => init(), setPose: (p) => (window.Bucky === api ? setPose(p) : window.Bucky.setPose(p)), burst: () => burst(), hit: (x, y) => hit(x, y) };
   const api = window.Bucky;
 })();
