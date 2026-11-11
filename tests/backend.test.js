@@ -155,3 +155,41 @@ console.log('backend: gantt sync good');
   assert.deepEqual(ok('forgot', { email: 'marctragant@gmail.com' }), { ok: true });
   console.log('backend: new tasks from the Gantt good');
 }
+
+// Manager View: only Eduardo gets the plan and can save tasks
+{
+  const stL = login('lunaghiso@gmail.com');
+  assert.ok(!stL.isManager && !stL.plan, 'Luna gets no plan');
+  bad('saveTask', { isNew: true, task: { id: '9.9', name: 'Sneaky' } }, /Only the manager/);
+  const stE = login('eduardojosereyesperez@gmail.com');
+  assert.ok(stE.isManager && stE.plan.tasks.length > 10, 'Eduardo gets the plan');
+  assert.ok(stE.plan.team.includes('Nerina') && stE.plan.types.includes('Image') && stE.plan.prefixes.includes('ENV'));
+  const p42 = stE.plan.tasks.find((t) => t.id === '4.2');
+  assert.match(p42.start, /^\d{4}-\d\d-\d\d$/);
+  // new task
+  bad('saveTask', { isNew: true, task: { id: '4.2', name: 'Dup' } }, /already a task 4.2/);
+  bad('saveTask', { isNew: true, task: { id: '2.10', name: 'X', start: '2026-11-20', due: '2026-11-18' } }, /before the start/);
+  let d = ok('saveTask', { isNew: true, task: { id: '2.10', name: 'Fields props', owners: 'Nerina', approvers: 'Eduardo, Luna', area: 'Art', prefix: 'PROP',
+    dod: 'Props for the Fields', file1: 'Image', labels: 'Props', deps: '2.2', start: '2026-11-19', due: '2026-11-20' } });
+  const [h, r] = taskRow('2.10');
+  assert.ok(r, 'created in Tasks');
+  assert.equal(r[h.indexOf('Status')], 'To do');
+  assert.equal(r[h.indexOf('Start')], '19 Nov');
+  assert.equal(r[h.indexOf('Milestone')], 'Pre-start');
+  assert.equal(r[h.indexOf('Version')], '0');
+  assert.ok(taskRow('2.1')[1], 'the 2.1 row is untouched');
+  const g = ganttRow('2.10'), gh = ss.getSheetByName('PreStart_Gantt').getDataRange().getDisplayValues()[0];
+  assert.ok(g, 'mirrored to the Gantt');
+  assert.equal(g[gh.indexOf('End')], '20 Nov');
+  assert.equal(g[gh.indexOf('Owner')], 'Nerina');
+  assert.ok(d.state.plan.tasks.find((t) => t.id === '2.10'));
+  // edit it
+  d = ok('saveTask', { task: { id: '2.10', name: 'Fields props', owners: 'Luna', status: 'In progress', start: '2026-11-19', due: '2026-11-24', dod: 'Props for the Fields, 6 of them' } });
+  assert.equal(taskRow('2.10')[1][h.indexOf('Owner')], 'Luna');
+  assert.equal(ganttRow('2.10')[gh.indexOf('Status')], 'In progress');
+  assert.equal(ganttRow('2.10')[gh.indexOf('Description')], 'Props for the Fields, 6 of them');
+  bad('saveTask', { task: { id: '7.7', name: 'Ghost' } }, /not in the sheet/);
+  const stN = login('lunaghiso@gmail.com');
+  assert.ok(task(stN, '2.10'), 'Luna sees her new task');
+  console.log('backend: manager view good');
+}

@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.4.0';
+var VERSION = '1.5.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -86,6 +86,7 @@ function handle(req) {
     case 'approve': return withLock(function () { return review(me, req, true); });
     case 'retake': return withLock(function () { return review(me, req, false); });
     case 'files': var FD = loadData(); return { files: filesFor(FD, FD.task(req.taskId)) };
+    case 'saveTask': return withLock(function () { return saveTask(me, req); });
   }
   fail('Unknown action: ' + a);
 }
@@ -169,7 +170,8 @@ function loadData() {
       due: r[COL.due], dueDate: parseDate(r[COL.due], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
       startDate: parseDate(r['Start'], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
       status: r[COL.status] || STATUS.todo, version: parseInt(r[COL.version] || '0', 10) || 0,
-      feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row, area: r[COL.area] || '', thread: r[COL.thread] || ''
+      feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row, area: r[COL.area] || '', thread: r[COL.thread] || '',
+      raw: r
     };
   });
   var log = tab('Log').rows.filter(function (r) { return r['Task ID']; }).map(function (r) {
@@ -177,7 +179,7 @@ function loadData() {
       from: r['From status'], to: r['To status'], text: r['Note or feedback'] };
   });
   return {
-    team: team, tasks: tasks, milestones: milestones, naming: naming, channels: channels, log: log, head: T.head, sheet: T.sheet,
+    team: team, tasks: tasks, milestones: milestones, naming: naming, types: types, channels: channels, log: log, head: T.head, sheet: T.sheet,
     task: function (id) { for (var i = 0; i < tasks.length; i++) if (tasks[i].id === id) return tasks[i]; fail('No task ' + id + ' in the sheet.'); }
   };
 }
@@ -227,11 +229,20 @@ function writeRow(name, id, values, create) {
     if (!create) return false;
     var empty = ids.indexOf('', 1);
     row = empty === -1 ? last : empty;
-    sh.getRange(row + 1, 1).setValue(id);
+    if (name === GANTT && row > 1) {   // a new Gantt row needs the Days and day-tick formulas
+      var src = sh.getRange(2, 1, 1, head.length).getFormulasR1C1()[0];
+      src.forEach(function (f, j) { if (f) sh.getRange(row + 1, j + 1).setFormulaR1C1(f); });
+    }
+    var idCell = sh.getRange(row + 1, 1);
+    idCell.setNumberFormat('@');   // keep "2.10" as text, not the number 2.1
+    idCell.setValue(String(id));
   }
   Object.keys(values).forEach(function (h) {
     var c = head.indexOf(h);
-    if (c !== -1 && h !== 'Asset') sh.getRange(row + 1, c + 1).setValue(values[h]);
+    if (c === -1 || h === 'Asset') return;
+    var cell = sh.getRange(row + 1, c + 1);
+    if (values[h] instanceof Date) cell.setNumberFormat('d mmm');
+    cell.setValue(values[h]);
   });
   return true;
 }
@@ -622,6 +633,8 @@ function fmtDay(d) { return d ? d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr',
 
 function historyText(e) {
   var v = vtag(e.version);
+  if (!e.from && e.text === 'Created in the Manager View') return e.who + ' created the task';
+  if (e.text === 'Changed in the Manager View') return e.who + ' set it to ' + e.to;
   if (e.from === STATUS.todo && e.to === STATUS.prog) return e.who + ' started the task';
   if (e.from === STATUS.prog && e.to === STATUS.todo) return e.who + ' moved it back to To do';
   if (e.from === STATUS.review && e.to === STATUS.review) return e.who + ' re-sent ' + v;
@@ -629,6 +642,70 @@ function historyText(e) {
   if (e.to === STATUS.done) return e.who + ' approved ' + v;
   if (e.to === STATUS.retake) return e.who + ' asked for a retake on ' + v;
   return e.who + ' set it to ' + e.to;
+}
+
+// ---------------------------------------------------------------- manager view
+// Only the people named in Settings "Manager" (default: Eduardo) get the plan and can save tasks.
+
+function isManager(me) {
+  return splitNames(settings()['Manager'] || 'Eduardo').map(function (n) { return n.toLowerCase(); }).indexOf(me) !== -1;
+}
+
+function isoDay(d) { var pad = function (n) { return (n < 10 ? '0' : '') + n; }; return d ? d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) : ''; }
+
+function plan(D) {
+  var areas = {};
+  var tasks = D.tasks.map(function (t) {
+    var r = t.raw;
+    if (t.area) areas[t.area] = 1;
+    return { id: t.id, ms: t.ms, name: t.name, area: t.area, prefix: t.prefix, asset: t.asset, dod: t.dod,
+      owners: t.owners.join(', '), support: r['Support'] || '', approvers: t.approvers.join(', '), output: r['Output'] || '',
+      file1: r[COL.file1] || '', file2: r[COL.file2] || '', file3: r[COL.file3] || '', labels: r[COL.labels] || '', deps: t.deps.join(', '),
+      start: isoDay(t.startDate), due: isoDay(t.dueDate), status: t.status, version: t.version, updated: r[COL.updated] || '' };
+  });
+  return { tasks: tasks, team: Object.keys(D.team).map(function (k) { return D.team[k].name; }),
+    types: Object.keys(D.types), prefixes: Object.keys(D.naming), areas: Object.keys(areas),
+    milestones: D.milestones.map(function (m) { return { id: m.id, name: m.name }; }), statuses: Object.keys(STATUS).map(function (k) { return STATUS[k]; }) };
+}
+
+var EDIT_FIELDS = { name: 'Task', ms: 'Milestone', area: 'Area', prefix: 'Prefix', dod: 'Definition of done', owners: 'Owner', support: 'Support',
+  approvers: 'Approver', output: 'Output', file1: 'File 1', file2: 'File 2', file3: 'File 3', labels: 'File labels', deps: 'Depends on', status: 'Status' };
+
+/** Create or change a task from the Manager View. Writes Tasks and mirrors pre-start tasks to the Gantt. */
+function saveTask(me, req) {
+  if (!isManager(me)) fail('Only the manager can change tasks.');
+  var D = loadData(), x = req.task || {}, isNew = !!req.isNew;
+  var id = String(x.id || '').trim();
+  if (!id) fail('Give the task an ID.');
+  if (!/^[0-9A-Za-z._-]+$/.test(id)) fail('IDs can only use letters, numbers and dots, like 2.5.');
+  if (!String(x.name || '').trim()) fail('Give the task a name.');
+  var old = D.tasks.filter(function (t) { return t.id === id; })[0];
+  if (isNew && old) fail('There is already a task ' + id + ' (' + old.name + ').');
+  if (!isNew && !old) fail('Task ' + id + ' is not in the sheet anymore.');
+  var statuses = Object.keys(STATUS).map(function (k) { return STATUS[k]; });
+  var status = x.status || STATUS.todo;
+  if (statuses.indexOf(status) === -1) fail('Unknown status "' + status + '".');
+  var start = parseDate(x.start), due = parseDate(x.due);
+  if (start && due && due < start) fail('The due date is before the start date.');
+  var values = {};
+  Object.keys(EDIT_FIELDS).forEach(function (k) { if (x[k] !== undefined) values[EDIT_FIELDS[k]] = String(x[k]).trim(); });
+  values[COL.status] = status;
+  values['Start'] = start || '';
+  values[COL.due] = due || '';
+  if (!values[COL.milestone]) values[COL.milestone] = old ? old.ms : GANTT_MILESTONE;
+  var changed = !old || old.status !== status;
+  if (changed) values[COL.updated] = stamp();
+  if (isNew) values[COL.version] = 0;
+  writeRow('Tasks', id, values, isNew);
+  if (values[COL.milestone] === GANTT_MILESTONE) {
+    var g = {};
+    Object.keys(values).forEach(function (h) { if (TASKS_TO_GANTT[h]) g[TASKS_TO_GANTT[h]] = values[h]; });
+    try { writeRow(GANTT, id, g, true); } catch (e) { console.warn('Gantt sync failed', e); }
+  }
+  var who = D.team[me].name;
+  if (isNew) addLog({ id: id }, 0, who, '', status, 'Created in the Manager View');
+  else if (changed) addLog(old, old.version, who, old.status, status, 'Changed in the Manager View');
+  return done(me, { kind: 'info', mention: '', text: (isNew ? 'Created ' : 'Saved ') + values[COL.name] + '.' });
 }
 
 function state(me) {
@@ -669,5 +746,7 @@ function state(me) {
   var S = settings();
   var links = [['One Page', 'PITCH', 'Link: One Page'], ['Bucky Bible', 'GAME DESIGN DOC', 'Link: Bucky Bible'], ['Discord server', 'CHAT', 'Link: Discord server']]
     .map(function (l) { return { label: l[0], kind: l[1], url: /^https?:\/\//.test(S[l[2]] || '') ? S[l[2]] : '' }; });
-  return { me: { key: p.key, name: p.name, full: p.full }, isReviewer: reviewer, milestones: milestones, avg: avg, tasks: tasks, links: links, backend: VERSION };
+  var out = { me: { key: p.key, name: p.name, full: p.full }, isReviewer: reviewer, milestones: milestones, avg: avg, tasks: tasks, links: links, backend: VERSION };
+  if (isManager(me)) { out.isManager = true; out.plan = plan(D); }
+  return out;
 }

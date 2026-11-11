@@ -1,12 +1,13 @@
 // Bucky Publisher UI. Data and actions go through BuckyAPI (api.js) to the Apps Script
 // backend. This file renders S (state from the backend) and U (local UI state).
 (function () {
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const API = window.BuckyAPI;
   let S = { me: null };         // state from the backend
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
     fb: '', resend: null, busy: null, loading: false, error: '',
-    gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false, prog: 0, progText: '' };
+    gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false, prog: 0, progText: '',
+    mvMs: 'all', edit: null, editNew: false, saving: false };
   let lastKey = '', lastScreenKey = '', countT = null, toastT = null;
 
   const $ = (id) => document.getElementById(id);
@@ -95,6 +96,7 @@
     return '<nav><button class="nav ' + (U.view === 'progress' ? 'on' : '') + '" data-act="view" data-v="progress">MILESTONES</button>' +
       '<button class="nav ' + (U.view === 'tasks' ? 'on' : '') + '" data-act="view" data-v="tasks">MY TASKS ' + open + '</button>' +
       (S.isReviewer ? '<button class="nav ' + (U.view === 'review' ? 'on' : '') + '" data-act="view" data-v="review">TO REVIEW ' + queue().length + '</button>' : '') +
+      (S.isManager ? '<button class="nav ' + (U.view === 'manager' ? 'on' : '') + '" data-act="view" data-v="manager">MANAGER VIEW</button>' : '') +
       '<button class="nav ' + (U.view === 'docs' ? 'on' : '') + '" data-act="view" data-v="docs">DOCS</button>' +
       '<button class="navx signout" data-act="signout">SIGN OUT</button></nav>';
   }
@@ -222,6 +224,136 @@
       (t ? (isTasks ? taskCard(t) : reviewCard(t)) : '') + '</div>';
   }
 
+  // ---- manager view: Gantt of every task, click one to edit, or add a new one ----
+  const OWNER_COLORS = [['Eduardo', '#EB5E28'], ['Luna', '#D94F8A'], ['Marc', '#8E5CC4'], ['Guillem', '#3C85C5'], ['Nerina', '#6AA84F']];
+  function barColor(t) {
+    if (t.status === 'Approved') return '#595651';
+    const o = t.owners || '';
+    if (/Luna/.test(o) && /Nerina/.test(o)) return '#275E2B';
+    const c = OWNER_COLORS.find((x) => o.indexOf(x[0]) !== -1);
+    return c ? c[1] : '#8C877F';
+  }
+  const dayOf = (iso) => { if (!iso) return null; const p = iso.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); };
+  const isoOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function planTasks() {
+    const P = S.plan || { tasks: [] };
+    const l = P.tasks.filter((t) => U.mvMs === 'all' || t.ms === U.mvMs);
+    return l.slice().sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999') || (a.due || '9999').localeCompare(b.due || '9999') ||
+      a.id.localeCompare(b.id, undefined, { numeric: true }));
+  }
+  // weekdays from the Monday before the first start to the Friday after the last due
+  function planDays(l) {
+    const ds = [];
+    l.forEach((t) => { [t.start, t.due].forEach((x) => { const d = dayOf(x); if (d) ds.push(d); }); });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    ds.push(today);
+    let a = new Date(Math.min(...ds)), b = new Date(Math.max(...ds));
+    a.setDate(a.getDate() - ((a.getDay() + 6) % 7));
+    b.setDate(b.getDate() + ((5 - b.getDay() + 7) % 7));
+    const out = [];
+    for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) out.push(isoOf(d));
+    return out;
+  }
+  let W = 30;   // px per day, stretched so short plans fill the panel
+  function ganttHtml(l) {
+    const days = planDays(l), idx = {}, today = isoOf(new Date());
+    W = Math.max(30, Math.floor(804 / days.length));
+    days.forEach((d, i) => { idx[d] = i; });
+    const near = (iso, up) => {   // weekend dates snap to the next (start) or previous (end) weekday
+      if (!iso) return null;
+      const d = dayOf(iso);
+      for (let k = 0; k < 3; k++) { const s = isoOf(d); if (s in idx) return idx[s]; d.setDate(d.getDate() + (up ? 1 : -1)); }
+      return null;
+    };
+    const head = days.map((d, i) => {
+      const x = dayOf(d), mon = x.getDay() === 1;
+      return '<span class="gday' + (mon ? ' mon' : '') + (d === today ? ' today' : '') + '" style="width:' + W + 'px">' + (mon || i === 0 ? '<b>' + x.getDate() + ' ' + MON[x.getMonth()] + '</b>' : '') +
+        '<i>' + 'MTWTF'[x.getDay() - 1] + '</i></span>';
+    }).join('');
+    const ti = idx[today];
+    const rows = l.map((t) => {
+      const a = near(t.start, true), b = near(t.due, false);
+      let bar = '';
+      if (a != null && b != null && b >= a) {
+        bar = '<span class="gbar' + (t.status === 'Approved' ? ' done' : '') + '" style="left:' + (a * W + 2) + 'px;width:' + ((b - a + 1) * W - 4) + 'px;background:' + barColor(t) + '">' +
+          (t.status === 'Approved' ? '✓' : t.status === 'Pending review' ? 'REVIEW' : t.status === 'Retake' ? 'RETAKE' : '') + '</span>';
+      }
+      return '<button class="grow' + (U.edit && !U.editNew && U.edit.id === t.id ? ' sel' : '') + (t.status === 'Approved' ? ' isdone' : '') + '" data-act="mvopen" data-id="' + esc(t.id) + '">' +
+        '<span class="gname"><span class="gid">' + esc(t.id) + '</span><span class="gnm">' + esc(t.name) + '</span><span class="gown">' + esc(t.owners) + '</span></span>' +
+        '<span class="gtrack" style="width:' + days.length * W + 'px;background-size:' + 5 * W + 'px 100%">' + bar + '</span></button>';
+    }).join('');
+    return '<div class="gantt glass pin z" style="animation-delay:250ms"><div class="gin" style="width:' + (360 + days.length * W) + 'px">' +
+      '<div class="ghead"><span class="gname lbl">TASK</span><span class="gdays">' + head + '</span></div>' +
+      (ti != null ? '<span class="gnow" style="left:' + (360 + ti * W + W / 2) + 'px"></span>' : '') +
+      (rows || '<div class="empty">No tasks here yet.</div>') + '</div></div>';
+  }
+
+  function blankTask() {
+    const P = S.plan, ids = P.tasks.map((t) => t.id);
+    return { id: '', name: '', ms: U.mvMs !== 'all' ? U.mvMs : ((P.milestones[0] || {}).id || ''), area: '', prefix: '', dod: '', owners: '', support: '',
+      approvers: 'Eduardo', output: '', file1: '', file2: '', file3: '', labels: '', deps: '', start: isoOf(new Date()), due: isoOf(new Date()), status: 'To do', version: 0, _ids: ids };
+  }
+
+  function editorHtml() {
+    const e = U.edit, P = S.plan, isNew = U.editNew;
+    const opt = (list, v, empty) => (empty ? '<option value="">' + empty + '</option>' : '') + list.map((x) => {
+      const val = typeof x === 'string' ? x : x.id, txt = typeof x === 'string' ? x : x.name;
+      return '<option value="' + esc(val) + '"' + (val === v ? ' selected' : '') + '>' + esc(txt) + '</option>';
+    }).join('');
+    const inp = (f, lbl, ph, list) => '<label class="ef"><span class="lbl">' + lbl + '</span><input data-f="' + f + '" value="' + esc(e[f]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + (list ? ' list="' + list + '"' : '') + '></label>';
+    const sel = (f, lbl, list, empty) => '<label class="ef"><span class="lbl">' + lbl + '</span><select data-f="' + f + '">' + opt(list, e[f], empty) + '</select></label>';
+    const date = (f, lbl) => '<label class="ef"><span class="lbl">' + lbl + '</span><input type="date" data-f="' + f + '" value="' + esc(e[f]) + '"></label>';
+    const saveBtn = U.saving ? '<button class="btn primary filling" id="busybtn" disabled>' + fill(isNew ? 'Creating' : 'Saving') + '</button>'
+      : '<button class="btn primary" data-act="mvsave">' + (isNew ? 'Create task' : 'Save') + '</button>';
+    return '<div class="glass editor pin z" role="dialog" aria-label="' + (isNew ? 'New task' : 'Edit task') + '">' +
+      '<div class="head"><h2>' + (isNew ? 'New task' : esc(e.name || 'Task')) + '</h2>' + (isNew ? '' : pill(e.status)) + '</div>' +
+      (isNew ? '' : '<span class="muted" style="font-size:13px;font-family:var(--mono)">' + esc(e.id) + (e.asset ? ' · ' + esc(e.asset) : '') + ' · v' + String(e.version).padStart(2, '0') + (e.updated ? ' · updated ' + esc(e.updated) : '') + '</span>') +
+      '<div class="eg">' +
+        (isNew ? inp('id', 'ID', 'e.g. 2.5') + inp('name', 'TASK', 'What has to be done') : inp('name', 'TASK', 'What has to be done').replace('class="ef"', 'class="ef wide"')) +
+        sel('status', 'STATUS', P.statuses) + sel('ms', 'MILESTONE', P.milestones) +
+        inp('owners', 'OWNER', 'Luna, Nerina', 'mvteam') + inp('approvers', 'APPROVER', 'Eduardo, Luna', 'mvteam') +
+        date('start', 'START') + date('due', 'DUE') +
+        inp('area', 'AREA', 'Art', 'mvareas') + sel('prefix', 'PREFIX', P.prefixes, 'None') +
+        '<label class="ef wide"><span class="lbl">DESCRIPTION</span><textarea data-f="dod" rows="3">' + esc(e.dod) + '</textarea></label>' +
+        '<label class="ef wide"><span class="lbl">OUTPUT</span><input data-f="output" value="' + esc(e.output) + '" placeholder="What gets delivered and where"></label>' +
+        sel('file1', 'FILE 1', P.types, 'None') + sel('file2', 'FILE 2', P.types, 'None') + sel('file3', 'FILE 3', P.types, 'None') +
+        inp('labels', 'FILE LABELS', 'Sketches, Turnaround') + inp('deps', 'DEPENDS ON', '1.1, 2.1') + inp('support', 'SUPPORT', '', 'mvteam') +
+      '</div>' +
+      '<datalist id="mvteam">' + P.team.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+      '<datalist id="mvareas">' + P.areas.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+      '<div style="display:flex;gap:14px;align-items:center">' + saveBtn + (U.saving ? '' : '<button class="link" data-act="mvclose">Cancel</button>') + '</div></div>';
+  }
+
+  function managerScreen() {
+    const P = S.plan || { tasks: [], milestones: [] }, l = planTasks();
+    const used = P.milestones.filter((m) => P.tasks.some((t) => t.ms === m.id));
+    const chips = [{ id: 'all', name: 'All' }].concat(used).map((m) => '<button class="mchip' + (U.mvMs === m.id ? ' on' : '') + '" data-act="mvms" data-ms="' + esc(m.id) + '">' + esc(m.name) + '</button>').join('');
+    const counts = {};
+    l.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
+    const sum = ['To do', 'In progress', 'Pending review', 'Retake', 'Approved'].filter((k) => counts[k]).map((k) => counts[k] + ' ' + label(k).toLowerCase()).join(' · ');
+    return '<div class="grid">' + nav() + '<div style="grid-column:1/span 12;height:18px"></div>' +
+      '<h1 class="z" style="grid-column:1/span 7;margin-top:0;font-size:72px" aria-label="Manager view">' + kinetic('Manager view') + '</h1>' +
+      '<div class="mvbar z" style="grid-column:1/span 12"><button class="btn primary" data-act="mvnew">+ New task</button><span class="mchips">' + chips + '</span>' +
+      '<span class="muted" style="font-size:13px;font-family:var(--mono)">' + esc(sum).toUpperCase() + '</span></div>' +
+      '<div class="z" style="grid-column:1/span 12">' + ganttHtml(l) + '</div>' +
+      (U.edit ? editorHtml() : '') + '</div>';
+  }
+
+  async function saveTask() {
+    const e = U.edit;
+    if (U.editNew && !String(e.id || '').trim()) { toast({ text: 'Give the task an ID.', kind: 'error' }); return; }
+    if (!String(e.name || '').trim()) { toast({ text: 'Give the task a name.', kind: 'error' }); return; }
+    if (e.start && e.due && e.due < e.start) { toast({ text: 'The due date is before the start date.', kind: 'error' }); return; }
+    const task = Object.assign({}, e); delete task._ids;
+    U.saving = true; render();
+    const isNew = U.editNew;
+    const data = await runKeep('saveTask', { task, isNew }, isNew ? 'Creating' : 'Saving');
+    U.saving = false;
+    if (data) { U.edit = null; U.editNew = false; }
+    render();
+  }
+
   // ---- render ---------------------------------------------------------
   function render() {
     const scr = $('screen');
@@ -232,15 +364,23 @@
     lastKey = key; lastScreenKey = screenKey;
     const keepScroll = same && scr.querySelector('.card') ? scr.querySelector('.card').scrollTop : 0;
     const listScroll = sameScreen && scr.querySelector('.list') ? scr.querySelector('.list').scrollTop : 0;
+    const g0 = sameScreen && scr.querySelector('.gantt'), gScroll = g0 ? [g0.scrollLeft, g0.scrollTop] : null;
+    const e0 = scr.querySelector('.editor'), eScroll = e0 ? e0.scrollTop : 0;
     if (!S.me) { scr.innerHTML = signinScreen(); Bucky.setPose('signin'); }
     else if (U.view === 'progress') { scr.innerHTML = progressScreen(); Bucky.setPose('progress'); if (!same) countUp(); else $('hero').textContent = S.avg + '%'; }
     else if (U.view === 'docs') { scr.innerHTML = docsScreen(); Bucky.setPose('peek'); }
+    else if (U.view === 'manager' && S.isManager) { scr.innerHTML = managerScreen(); Bucky.setPose('peek'); }
     else { scr.innerHTML = workScreen(); Bucky.setPose('peek'); }
     scr.classList.toggle('calm', sameScreen);
     const card = scr.querySelector('.card');
     if (card) { card.classList.toggle('fresh', sameScreen && !same); if (keepScroll) card.scrollTop = keepScroll; }
     const list = scr.querySelector('.list');
     if (list && listScroll) list.scrollTop = listScroll;
+    const g1 = scr.querySelector('.gantt');
+    if (g1 && gScroll) { g1.scrollLeft = gScroll[0]; g1.scrollTop = gScroll[1]; }
+    else if (g1) { const now = g1.querySelector('.gnow'); if (now) g1.scrollLeft = Math.max(0, now.offsetLeft - 360 - 4 * W); }
+    const e1 = scr.querySelector('.editor');
+    if (e1 && eScroll) e1.scrollTop = eScroll;
     const selRow = scr.querySelector('.row.sel');
     if (selRow && !sameScreen) selRow.scrollIntoView({ block: 'nearest' });
     const det = scr.querySelector('details');
@@ -272,7 +412,7 @@
     clearTimeout(toastT);
     el.innerHTML = '<div class="glass toast ' + (ev.kind === 'retake' ? 'shake' : '') + ' ' + (ev.kind === 'error' ? 'error' : '') + '" role="status">' +
       '<span class="av">' + (ev.kind === 'error' ? '!' : 'B') + '</span><span style="display:flex;flex-direction:column;gap:6px;min-width:0">' +
-      '<span class="lbl">' + (ev.kind === 'error' ? 'BUCKY \u00b7 HEADS UP' : 'BUCKY \u00b7 DISCORD') + '</span>' +
+      '<span class="lbl">' + (ev.kind === 'error' ? 'BUCKY \u00b7 HEADS UP' : ev.kind === 'info' ? 'BUCKY' : 'BUCKY \u00b7 DISCORD') + '</span>' +
       '<span class="msg">' + (ev.mention ? '<span class="who">' + esc(ev.mention) + '</span> ' : '') + esc(ev.text) + '</span>' +
       (ev.quote ? '<span class="quote">' + esc(ev.quote) + '</span>' : '') + '</span></div>';
     toastT = setTimeout(() => { el.innerHTML = ''; }, ev.kind === 'error' ? 7000 : 5000);
@@ -283,7 +423,8 @@
     if (data && data.state) {
       const prev = S.me && S.me.key;
       S = data.state;
-      if (prev !== S.me.key) { U.view = 'progress'; U.sel = null; clean(); U.picks = {}; }
+      if (prev !== S.me.key) { U.view = 'progress'; U.sel = null; clean(); U.picks = {}; U.edit = null; }
+      if (U.view === 'manager' && !S.isManager) U.view = 'progress';
     }
     if (data && data.event) { if (data.event.kind !== 'error') clean(); toast(data.event); if (data.event.kind === 'good') Bucky.burst(); }
   }
@@ -304,6 +445,8 @@
       render();
     }
   }
+
+  const runKeep = (a, p, txt) => run(a, p, txt);
 
   function signedOut() { API.store.set('bucky.token', null); S = { me: null }; lastKey = ''; lastScreenKey = ''; }
 
@@ -378,11 +521,16 @@
     switch (a) {
       case 'signout': API.call('logout').catch(() => {}); signedOut(); render(); break;
       case 'reset': try { ['bucky.mock', 'bucky.mockprops', 'bucky.mockdrive', 'bucky.token'].forEach((k) => localStorage.removeItem(k)); } catch (e) {} location.reload(); break;
-      case 'view': U.view = el.dataset.v; U.sel = null; clean(); render(); break;
+      case 'view': U.view = el.dataset.v; U.sel = null; U.edit = null; clean(); render(); break;
       case 'ms': U.view = 'tasks'; U.ms = el.dataset.ms; U.sel = null; clean(); render(); break;
       case 'sel': U.sel = el.dataset.id; clean(); render(); break;
       case 'start': U.sel = t.id; U.busy = t.id; U.busyAct = 'start'; U.prog = 0; U.progText = 'Starting'; render(); run('start', { taskId: t.id }, 'Starting'); break;
       case 'forgot': forgot(); break;
+      case 'mvms': U.mvMs = el.dataset.ms; render(); break;
+      case 'mvnew': U.edit = blankTask(); U.editNew = true; render(); { const f = document.querySelector('[data-f="id"]'); if (f) f.focus(); } break;
+      case 'mvopen': { const x = (S.plan.tasks || []).find((k) => k.id === el.dataset.id); if (x) { U.edit = Object.assign({}, x); U.editNew = false; render(); } } break;
+      case 'mvclose': U.edit = null; U.editNew = false; render(); break;
+      case 'mvsave': saveTask(); break;
       case 'pick': pickFile(t, Number(el.dataset.i)); break;
       case 'note': U.noteOpen = true; render(); $('note').focus(); break;
       case 'resend': U.resend = t.id; U.note = t.note || ''; U.noteOpen = !!t.note; render(); break;
@@ -453,6 +601,7 @@
     });
     // typing must not re-render (focus would be lost), so update buttons in place
     scr.addEventListener('input', (e) => {
+      if (e.target.dataset && e.target.dataset.f && U.edit) { U.edit[e.target.dataset.f] = e.target.value; return; }
       if (e.target.id === 'note') {
         U.note = e.target.value;
         const p = $('publish');
@@ -463,6 +612,7 @@
         if (r) r.disabled = !U.fb.trim() || !!U.busy;
       }
     });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && U.edit && !U.saving) { U.edit = null; U.editNew = false; render(); } });
     window.addEventListener('beforeunload', (e) => { if (U.up) { e.preventDefault(); e.returnValue = ''; } });
   }
 
@@ -483,7 +633,7 @@
   // pick up changes from teammates; skipped while typing or uploading
   setInterval(() => {
     const typing = document.activeElement && /TEXTAREA|INPUT/.test(document.activeElement.tagName);
-    if (S.me && !U.busy && !U.up && !typing) run('state');
+    if (S.me && !U.busy && !U.up && !typing && !U.edit) run('state');
   }, 60000);
 
   window.addEventListener('resize', fit);

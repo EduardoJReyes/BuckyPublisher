@@ -224,3 +224,45 @@ a.doc:active{transform:scale(.97,.94);transition-duration:.08s}
 @media (prefers-reduced-motion:reduce){.liq::after,.msliq::after{animation:none!important}.msliq{animation:none!important;width:var(--w)}}
 
 .filling[aria-busy]{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%}
+
+/* v1.5 manager view */
+.mvbar{display:flex;align-items:center;gap:18px;margin-top:8px}
+.mvbar .btn{height:42px;padding:0 20px;font-size:13px}
+.mchips{display:flex;gap:8px}
+.mchip{height:30px;padding:0 12px;border:1px solid rgba(255,252,242,.25);border-radius:15px;background:transparent;color:var(--stone);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.mchip.on{background:var(--cream);border-color:var(--cream);color:var(--ink)}
+.gantt{margin-top:14px;height:520px;overflow:auto;box-sizing:border-box}
+.gin{position:relative;min-height:100%}
+.ghead{position:sticky;top:0;z-index:3;display:flex;height:44px;background:#2C2B28;border-bottom:1px solid rgba(255,252,242,.15)}
+.ghead .gname{display:flex;align-items:flex-end;padding:0 14px 8px}
+.gdays{display:flex}
+.gday{position:relative;flex-shrink:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:8px;box-sizing:border-box;font-family:var(--mono);font-size:10px;color:var(--dim)}
+.gday.mon{border-left:1px solid rgba(255,252,242,.18)}
+.gday b{position:absolute;top:6px;left:4px;white-space:nowrap;font-weight:500;color:var(--stone);letter-spacing:.06em}
+.gday.today i{color:var(--orange);font-weight:700}
+.gname{position:sticky;left:0;z-index:2;width:360px;flex-shrink:0;box-sizing:border-box;background:#2C2B28}
+.grow{display:flex;width:100%;height:38px;padding:0;border:0;border-bottom:1px solid rgba(255,252,242,.06);background:transparent;text-align:left;color:var(--cream)}
+.grow:hover .gname{background-color:#34332F}.grow:hover .gtrack{background-color:rgba(255,252,242,.05)}
+.grow.sel .gname{background-color:#383632}
+.grow.sel .gname{box-shadow:inset 3px 0 0 var(--orange)}
+.grow .gname{display:grid;grid-template-columns:52px 1fr auto;align-items:center;gap:8px;padding:0 12px 0 14px}
+.gid{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.gnm{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grow.isdone .gnm{text-decoration:line-through;color:var(--dim)}
+.gown{font-family:var(--mono);font-size:10px;color:var(--stone);max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gtrack{position:relative;flex-shrink:0;height:100%;background-image:linear-gradient(90deg,rgba(255,252,242,.12) 1px,transparent 1px);background-repeat:repeat-x}
+.gbar{position:absolute;top:8px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--cream);box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+.gbar.done{color:var(--cream)}
+.gnow{position:absolute;top:44px;bottom:0;width:2px;margin-left:-1px;background:var(--orange);z-index:1;pointer-events:none;opacity:.8}
+.editor{position:absolute;right:56px;top:96px;z-index:5;width:600px;max-height:664px;overflow:auto;box-sizing:border-box;padding:24px 26px;display:flex;flex-direction:column;gap:16px;background:rgba(37,36,34,.9)}
+.editor .head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+.editor .head h2{flex:1;font-size:30px;line-height:1.1}
+.eg{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.ef{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ef.wide{grid-column:1/span 2}
+.ef input,.ef select,.ef textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid rgba(255,252,242,.25);border-radius:4px;background:rgba(0,0,0,.25);color:var(--cream);font-size:15px;font-family:inherit}
+.ef input,.ef select{height:38px}
+.ef select option{background:#252422}
+.ef input::placeholder,.ef textarea::placeholder{color:var(--dim);opacity:1}
+.ef input[type=date]{color-scheme:dark}
+.ef select:focus{outline:2px solid var(--orange);outline-offset:1px}

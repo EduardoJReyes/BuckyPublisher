@@ -28,7 +28,8 @@
           getValues: () => grid((v) => v),
           getValue: () => cell(r, c),
           getDisplayValue: () => String(cell(r, c)),
-          setValue: (v) => { const rs = rows(); while (rs.length < r) rs.push([]); const row = rs[r - 1]; while (row.length < c) row.push(''); row[c - 1] = String(v); persist(); }
+          setValue: (v) => { if (v instanceof Date) v = v.getDate() + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][v.getMonth()]; const rs = rows(); while (rs.length < r) rs.push([]); const row = rs[r - 1]; while (row.length < c) row.push(''); row[c - 1] = String(v); persist(); },
+          setNumberFormat: () => {}, setFormulaR1C1: () => {}, getFormulasR1C1: () => Array.from({ length: nr }, () => Array.from({ length: nc }, () => ''))
         };
       },
       appendRow: (arr) => { rows().push(arr.map(String)); persist(); }
