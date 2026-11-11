@@ -43,6 +43,27 @@
     [[1, 1, 0.35], [2.76, 0.45, 0.22], [5.4, 0.2, 0.12], [8.9, 0.08, 0.07]].forEach((p) => tone(f * p[0], t, v * p[1], p[2]));
   }
 
+  // mechanical click, like a switch: a sharp tick on press, a softer one on release, and a short low body
+  function snap(t, vol, hp) {
+    const c = ctx, len = Math.floor(c.sampleRate * 0.012), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+    const g = c.createGain(); g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(master); src.start(t);
+  }
+  function click() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime + 0.005, j = 0.97 + Math.random() * 0.06;
+    snap(t, 0.5, 2200 * j);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(180 * j, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.03);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    env(g, t, 0.002, 0.08, 0.035);
+    o.connect(lp); lp.connect(g); g.connect(master); o.start(t); o.stop(t + 0.06);
+    snap(t + 0.055, 0.22, 3200 * j);
+  }
+
   // one bubble: a sine that sweeps up fast, like a drop popping in water
   function bubble(t, f0, vol) {
     const c = ctx, o = c.createOscillator(), g = c.createGain();
@@ -111,5 +132,5 @@
     if (on) tink();
   }
 
-  window.Sound = { tink, pour, boing, success, setOn, isOn: () => on };
+  window.Sound = { tink, click, pour, boing, success, setOn, isOn: () => on };
 })();

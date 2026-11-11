@@ -594,7 +594,7 @@
       const el = e.target.closest('[data-act]');
       if (el && !el.disabled) {
         const a = el.dataset.act;
-        if (a !== 'sound') Sound.tink(!/^(view|ms|mvms)$/.test(a));
+        if (/^(view|ms|mvms)$/.test(a)) Sound.click(); else if (a !== 'sound') Sound.tink(true);
         act(a, el);
       } else if (!e.target.closest('.glass, button, a, input, textarea, select, label') && Bucky.hit && Bucky.hit(e.clientX, e.clientY)) {
         Sound.boing();
