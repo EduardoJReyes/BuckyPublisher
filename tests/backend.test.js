@@ -193,3 +193,23 @@ console.log('backend: gantt sync good');
   assert.ok(task(stN, '2.10'), 'Luna sees her new task');
   console.log('backend: manager view good');
 }
+
+// Previews: the owner sees what they sent, Discord gets the images
+{
+  login('lunaghiso@gmail.com');
+  call('start', { taskId: '2.1' });
+  const files = [{ i: 0, name: 'a.png', size: 1024 * 1024, type: 'image/png' }, { i: 1, name: 'b.png', size: 12 * 1024 * 1024, type: 'image/png' }];
+  const b = uploadAll('2.1', files);
+  const n0 = mockDiscord.length;
+  const d = ok('finishUpload', { taskId: '2.1', version: b.version, note: 'first pass' });
+  const m = mockDiscord[mockDiscord.length - 1];
+  assert.equal(mockDiscord.length, n0 + 1);
+  assert.equal(m.files.length, 1, 'small image attached');
+  assert.equal(m.embeds.length, 1, 'big image as a thumbnail embed');
+  assert.match(m.embeds[0].image.url, /drive\.google\.com\/thumbnail/);
+  const mineT = d.state.tasks.find((t) => t.id === '2.1');
+  assert.equal(mineT.status, 'Pending review');
+  assert.equal(mineT.files.length, 2, 'owner sees the sent files');
+  assert.ok(mineT.files[0].thumb, 'with an image preview');
+  console.log('backend: previews good');
+}

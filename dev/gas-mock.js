@@ -64,7 +64,7 @@
   const kids = (pid, folderOnly) => Object.values(drive.items).filter((x) => x.parent === pid && !x.trashed && (folderOnly == null || !!x.folder === folderOnly));
   const iter = (arr) => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
   function fileObj(x) {
-    return { getId: () => x.id, getName: () => x.name, getMimeType: () => x.mime || 'application/octet-stream', getSize: () => x.size || 0,
+    return { getId: () => x.id, getName: () => x.name, getMimeType: () => x.mime || 'application/octet-stream', getBlob: () => { const bl = { n: x.name, setName: (nm) => { bl.n = nm; return bl; }, getName: () => bl.n }; return bl; }, getSize: () => x.size || 0,
       setSharing: () => { x.shared = true; saveDrive(); }, setTrashed: (v) => { x.trashed = !!v; saveDrive(); },
       makeCopy: (name, dst) => { const id = newId(); drive.items[id] = Object.assign({}, x, { id, name, parent: dst.getId(), shared: false }); saveDrive(); return fileObj(drive.items[id]); } };
   }
@@ -87,9 +87,9 @@
   G.UrlFetchApp = { fetch: (url, o) => {
     o = o || {};
     if (url.indexOf('https://discord.com/api/webhooks/test/') === 0) {
-      const body = JSON.parse(o.payload), th = (url.match(/thread_id=([^&]+)/) || [])[1];
+      const body = JSON.parse(typeof o.payload === 'string' ? o.payload : o.payload.payload_json), th = (url.match(/thread_id=([^&]+)/) || [])[1];
       const thread = th || (body.thread_name ? 'thr-' + newId() : null);
-      G.mockDiscord.push({ hook: url.split('?')[0], thread, title: body.thread_name || null, content: body.content });
+      G.mockDiscord.push({ hook: url.split('?')[0], thread, title: body.thread_name || null, content: body.content, embeds: body.embeds || [], files: typeof o.payload === 'string' ? [] : Object.keys(o.payload).filter((k) => /^files/.test(k)).map((k) => o.payload[k].getName()) });
       if (G.document) (G.console || console).log('[Bucky -> Discord]', url.split('?')[0].split('/').pop(), thread, body.content);
       return resp(200, {}, JSON.stringify({ id: 'msg' + newId(), channel_id: thread || 'chan' }));
     }

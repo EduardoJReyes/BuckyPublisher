@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.5.0';
+var VERSION = '1.6.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -456,40 +456,65 @@ function channelFor(D, t) {
   return S['Discord channel for ' + t.area] || S['Discord channel for other tasks'] || 'design';
 }
 
-function post(url, body) {
-  var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body) });
+function post(url, body, blobs) {
+  var opt = { method: 'post', muteHttpExceptions: true };
+  if (blobs && blobs.length) {   // multipart: the message as payload_json plus the files
+    var form = { payload_json: JSON.stringify(body) };
+    blobs.forEach(function (b, i) { form['files[' + i + ']'] = b; });
+    opt.payload = form;
+  } else { opt.contentType = 'application/json'; opt.payload = JSON.stringify(body); }
+  var res = UrlFetchApp.fetch(url, opt);
   var out = { code: res.getResponseCode(), body: {} };
   try { out.body = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
   return out;
 }
 
+// Images and videos go to Discord as attachments so they show inline. Discord takes about
+// 10 MB per message on a normal server, so bigger images go as a Drive thumbnail and bigger videos as a link.
+var DISCORD_MAX = 9 * 1024 * 1024;
+function previews(files) {
+  var blobs = [], embeds = [], links = [], used = 0;
+  (files || []).forEach(function (f) {
+    var mime = f.getMimeType(), size = f.getSize(), id = f.getId();
+    var isImg = /^image\//.test(mime), isVid = /^video\//.test(mime);
+    if (!isImg && !isVid) return;
+    if (used + size <= DISCORD_MAX) { blobs.push(f.getBlob().setName(f.getName())); used += size; return; }
+    if (isImg) embeds.push({ title: f.getName(), url: 'https://drive.google.com/file/d/' + id + '/view', image: { url: 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1600' } });
+    else links.push(f.getName() + ': https://drive.google.com/file/d/' + id + '/view');
+  });
+  return { blobs: blobs, embeds: embeds.slice(0, 10), links: links };
+}
+
 /** One forum post per task in its feedback channel. The first message opens the post,
-    the rest reply inside it. Returns true if Discord took the message. */
-function discord(D, t, keys, text, quote) {
+    the rest reply inside it. files: Drive files to show as previews. Returns true if Discord took the message. */
+function discord(D, t, keys, text, quote, files) {
   var props = PropertiesService.getScriptProperties(), ch = channelFor(D, t);
   var hook = props.getProperty('DISCORD_WEBHOOK_' + String(ch).toUpperCase().replace(/[^A-Z0-9]/g, '_')) || props.getProperty('DISCORD_WEBHOOK');
   if (!hook) return 'no webhook for ' + ch;
   if (!HOOK_RE.test(hook)) return 'the webhook for ' + ch + ' is not a Discord webhook URL';
   var content = keys.map(function (k) { return mention(D, k); }).filter(String).join(' ');
   content = (content ? content + ' ' : '') + text + (quote ? '\n> ' + quote.replace(/\n/g, '\n> ') : '');
+  var pv = previews(files);
+  if (pv.links.length) content += '\n' + pv.links.join('\n');
   var body = { username: 'Bucky', content: content.slice(0, 1900), allowed_mentions: { parse: ['users'] } };
-  var sep = hook.indexOf('?') === -1 ? '?' : '&';
+  if (pv.embeds.length) body.embeds = pv.embeds;
+  var blobs = pv.blobs, sep = hook.indexOf('?') === -1 ? '?' : '&';
   try {
     if (t.thread) {
-      var r = post(hook + sep + 'wait=true&thread_id=' + encodeURIComponent(t.thread), body);
+      var r = post(hook + sep + 'wait=true&thread_id=' + encodeURIComponent(t.thread), body, blobs);
       if (r.code < 300) return true;
       if (r.code !== 404 && r.code !== 400) return 'Discord ' + r.code + ': ' + JSON.stringify(r.body).slice(0, 150);
       // the post was deleted: open a new one below
     }
     var title = (t.id + ' · ' + t.name).slice(0, 100);
-    var made = post(hook + sep + 'wait=true', Object.assign({ thread_name: title }, body));
+    var made = post(hook + sep + 'wait=true', Object.assign({ thread_name: title }, body), blobs);
     if (made.code < 300) {
       var id = made.body.channel_id;
       if (id) { try { writeTask(D, t, objOf(COL.thread, id)); t.thread = id; } catch (e) { console.warn('no Discord thread column', e); } }
       return true;
     }
     // not a forum channel: post a normal message
-    var plain = post(hook + sep + 'wait=true', body);
+    var plain = post(hook + sep + 'wait=true', body, blobs);
     if (plain.code < 300) return true;
     return 'Discord ' + made.code + ': ' + JSON.stringify(made.body).slice(0, 150);
   } catch (e) { return 'Discord error: ' + String(e).slice(0, 150); }
@@ -583,13 +608,16 @@ function finishUpload(me, req) {
   if (!isOwner(t, me)) fail('Only the task\'s owner can publish it.');
   var note = String(req.note || '').trim();
   var again = t.status === STATUS.review, v = t.slots.length ? Number(req.version) : (again ? t.version : t.version + 1);
+  var sentFiles = [];
   if (t.slots.length) {
     var dir = folder(folderParts(D, t, v), false);
     if (!dir) fail('The upload folder is missing on Drive.');
     fileNames(t, v).forEach(function (n) {
       var it = dir.getFilesByName(n);
       if (!it.hasNext()) fail(n + ' didn\'t arrive on Drive. Try again.');
-      share(it.next());
+      var f = it.next();
+      share(f);
+      sentFiles.push(f);
     });
     share(dir);
   } else if (!note) {
@@ -598,7 +626,7 @@ function finishUpload(me, req) {
   writeTask(D, t, objOf(COL.status, STATUS.review, COL.version, v, COL.note, pack(note, req.gif), COL.updated, stamp()));
   var tag = vtag(v), revs = reviewers(t);
   var msg = t.name + ' ' + tag + (again ? ' was sent again with fixes. Review this one instead.' : ' is ready for review.');
-  var sent = discord(D, t, revs, msg, note);
+  var sent = discord(D, t, revs, msg, note, sentFiles);
   addLog(t, v, D.team[me].name, t.status, STATUS.review, (again ? 're-sent: ' : '') + note, sent);
   return done(me, { mention: names(D, revs), text: msg, quote: note, gif: req.gif || null, kind: 'good' });
 }
@@ -740,7 +768,7 @@ function state(me) {
       slots: t.slots.map(function (s) { return { label: slotLabel(s), ext: s.ext }; }),
       blockers: blockers(D, t).map(function (b) { return b.name; }),
       log: hist.map(function (e) { return { when: e.when, text: historyText(e) }; }),
-      mine: mine, inQueue: inQueue, files: inQueue ? filesFor(D, t) : null
+      mine: mine, inQueue: inQueue, files: inQueue || (mine && t.status === STATUS.review) ? filesFor(D, t) : null
     });
   });
   var S = settings();

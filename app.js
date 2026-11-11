@@ -1,7 +1,7 @@
 // Bucky Publisher UI. Data and actions go through BuckyAPI (api.js) to the Apps Script
 // backend. This file renders S (state from the backend) and U (local UI state).
 (function () {
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const API = window.BuckyAPI;
   let S = { me: null };         // state from the backend
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
@@ -135,6 +135,7 @@
     }
     if (isPending) {
       h += '<div class="field" style="gap:6px"><span class="big">Sent.</span><span class="muted">Waiting for ' + esc(names(t.reviewers)) + '. Bucky will ping you on Discord when it\u2019s reviewed.</span></div>';
+      if (t.slots.length && U.resend !== t.id) h += filesHtml(t);
       if (U.resend !== t.id) h += '<div><button class="outline" data-act="resend">Update what I sent</button></div>';
       else h += '<span class="muted" style="font-size:15px">Replace what\u2019s wrong and send it again. It stays the same version, and the reviewer gets told to look at the new one.</span>';
     }
@@ -175,6 +176,18 @@
       (t.log.length ? t.log.map((l) => '<div><span>' + esc(l.when) + '</span><span>' + esc(l.text) + '</span></div>').join('') : '<div><span>No changes yet.</span></div>') + '</div></details>';
   }
 
+  function filesHtml(t) {
+    let h = '';
+    const files = t.files || [];
+    if (!files.length) h += '<div class="slot"><span class="nm" style="font-weight:400;color:var(--stone)">Files not found on Drive yet.</span></div>';
+    h += files.map((f) => '<div class="filebox">' +
+      (f.thumb ? '<a href="' + esc(f.view) + '" target="_blank" rel="noopener"><img class="thumb" src="' + esc(f.thumb) + '" alt="' + esc(f.label) + '" loading="lazy"></a>' : '') +
+      (f.preview ? '<iframe class="vid" src="' + esc(f.preview) + '" allow="autoplay" title="' + esc(f.label) + '"></iframe>' : '') +
+      '<div class="slot filled"><span class="nm"><span style="display:flex;flex-direction:column;gap:2px">' + esc(f.label) + '<span class="file">' + esc(f.name) + ' \u00b7 ' + mb(f.size) + '</span></span></span>' +
+      '<span style="display:flex;gap:8px"><a class="outline linkbtn" href="' + esc(f.view) + '" target="_blank" rel="noopener">Open</a><a class="outline linkbtn" href="' + esc(f.download) + '" target="_blank" rel="noopener">Download</a></span></div></div>').join('');
+    return h;
+  }
+
   function reviewCard(t) {
     const busy = U.busy === t.id, empty = !U.fb.trim();
     let h = '<div class="glass card pin z" style="gap:18px;animation-delay:400ms">' +
@@ -184,15 +197,7 @@
       h += '<span class="field" style="gap:6px"><span class="lbl">NOTE FROM ' + esc(t.owners.toUpperCase()) + '</span>' +
         '<span class="body">\u201c' + esc(t.note) + '\u201d</span></span>';
     }
-    if (t.slots.length) {
-      const files = t.files || [];
-      if (!files.length) h += '<div class="slot"><span class="nm" style="font-weight:400;color:var(--stone)">Files not found on Drive yet.</span></div>';
-      h += files.map((f) => '<div class="filebox">' +
-        (f.thumb ? '<a href="' + esc(f.view) + '" target="_blank" rel="noopener"><img class="thumb" src="' + esc(f.thumb) + '" alt="' + esc(f.label) + '" loading="lazy"></a>' : '') +
-        (f.preview ? '<iframe class="vid" src="' + esc(f.preview) + '" allow="autoplay" title="' + esc(f.label) + '"></iframe>' : '') +
-        '<div class="slot filled"><span class="nm"><span style="display:flex;flex-direction:column;gap:2px">' + esc(f.label) + '<span class="file">' + esc(f.name) + ' \u00b7 ' + mb(f.size) + '</span></span></span>' +
-        '<span style="display:flex;gap:8px"><a class="outline linkbtn" href="' + esc(f.view) + '" target="_blank" rel="noopener">Open</a><a class="outline linkbtn" href="' + esc(f.download) + '" target="_blank" rel="noopener">Download</a></span></div></div>').join('');
-    }
+    if (t.slots.length) h += filesHtml(t);
     h += '<div class="field"><label class="lbl" for="fb">COMMENT</label><textarea id="fb" rows="2" placeholder="Needed for a retake. Optional to approve.">' + esc(U.fb) + '</textarea></div>' +
       '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
       (busy && U.busyAct === 'approve' ? '<button class="btn primary filling" id="busybtn" disabled>' + fill('Approving') + '</button>' : '<button class="btn primary" data-act="approve" ' + (busy ? 'disabled' : '') + '>Approve</button>') +
