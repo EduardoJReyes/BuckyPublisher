@@ -32,6 +32,8 @@ jobs:
           printf '{"scriptId":"%s"}' "$SCRIPT_ID" > .clasp.json
           clasp pull                     # keeps appsscript.json and any other files in the project
           main=$(ls Code.js 2>/dev/null || ls *.js | head -1)
+          echo "Live code was: $(grep -o "VERSION = '[^']*'" "$main" | head -1)"
+          clasp deployments
           cp "$GITHUB_WORKSPACE/backend/Code.gs" "$main"
           clasp push -f
           ver=$(grep -o "VERSION = '[^']*'" "$main" | cut -d"'" -f2)
