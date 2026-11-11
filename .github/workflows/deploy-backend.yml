@@ -1,0 +1,38 @@
+# Pushes backend/Code.gs to the Apps Script project and updates the live web app deployment
+# (same /exec URL). Needs two repo secrets: CLASPRC_JSON and SCRIPT_ID. Skips itself until they exist.
+name: Deploy backend
+on:
+  push:
+    branches: [main]
+    paths: ['backend/Code.gs']
+  workflow_dispatch:
+env:
+  DEPLOYMENT_ID: AKfycbzuu_iFWmmueZtKo1YRAU1BrpDc_Dwlh3G6YVsdCgIyhI9Ni_gTK1zgBkkME1ut8ljQcw
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        id: ready
+        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}', SCRIPT_ID: '${{ secrets.SCRIPT_ID }}' }
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ]; then echo "Secrets not set yet, skipping."; echo "go=no" >> $GITHUB_OUTPUT; else echo "go=yes" >> $GITHUB_OUTPUT; fi
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.go == 'yes'
+        with: { node-version: 20 }
+      - name: Push and deploy
+        if: steps.ready.outputs.go == 'yes'
+        env: { CLASPRC_JSON: '${{ secrets.CLASPRC_JSON }}', SCRIPT_ID: '${{ secrets.SCRIPT_ID }}' }
+        run: |
+          npm i -g @google/clasp@2.4.2
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          mkdir /tmp/gas && cd /tmp/gas
+          printf '{"scriptId":"%s"}' "$SCRIPT_ID" > .clasp.json
+          clasp pull                     # keeps appsscript.json and any other files in the project
+          main=$(ls Code.js 2>/dev/null || ls *.js | head -1)
+          cp "$GITHUB_WORKSPACE/backend/Code.gs" "$main"
+          clasp push -f
+          ver=$(grep -o "VERSION = '[^']*'" "$main" | cut -d"'" -f2)
+          clasp deploy -i "$DEPLOYMENT_ID" -d "v$ver from GitHub $(git -C $GITHUB_WORKSPACE rev-parse --short HEAD)"
+          echo "Deployed backend v$ver"
