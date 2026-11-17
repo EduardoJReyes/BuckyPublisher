@@ -1,13 +1,13 @@
 // Bucky Publisher UI. Data and actions go through BuckyAPI (api.js) to the Apps Script
 // backend. This file renders S (state from the backend) and U (local UI state).
 (function () {
-  const VERSION = '1.7.0';
+  const VERSION = '1.8.0';
   const API = window.BuckyAPI;
   let S = { me: null };         // state from the backend
   const U = { view: 'progress', ms: 'Pre-start', sel: null, note: '', noteOpen: false, noteGif: null,
     fb: '', resend: null, busy: null, loading: false, error: '',
     gateOk: !!API.store.get('bucky.site'), picks: {}, up: null, booted: false, prog: 0, progText: '',
-    mvMs: 'all', edit: null, editNew: false, saving: false };
+    mvMs: 'all', mvDel: false, delArm: null, edit: null, editNew: false, saving: false };
   let lastKey = '', lastScreenKey = '', countT = null, toastT = null;
 
   const $ = (id) => document.getElementById(id);
@@ -145,13 +145,20 @@
       h += '<div>' + (busy ? '<button class="btn primary filling" id="busybtn" disabled>' + fill('Starting') + '</button>' : '<button class="btn primary" data-act="start">Start task</button>') + '</div>';
     }
     if (editing) {
-      const noFiles = !t.slots.length, missing = t.slots.filter((s, i) => !picks[i]).length;
+      const noFiles = !t.slots.length, missing = missingOf(t);
       t.slots.forEach((s, i) => {
         const f = picks[i];
+        if (s.link) {
+          const ok = f && validLink(f.link);
+          h += '<div class="slot ' + (ok ? 'filled' : '') + '" id="slot-' + i + '"><span class="nm" style="flex:1;min-width:0">' + '<span class="tick" aria-hidden="true" style="' + (ok ? '' : 'visibility:hidden') + '">&#10003;</span>' +
+            '<span style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:0">' + esc(s.label) +
+            '<input class="linkin" id="link-' + i + '" data-link="' + i + '" type="url" inputmode="url" placeholder="Paste a link: YouTube, Drive, anything" value="' + esc(f ? f.link : '') + '"' + (up || busy ? ' disabled' : '') + '></span></span></div>';
+          return;
+        }
         h += '<div class="slot ' + (f ? 'filled' : '') + '" data-drop="' + i + '"><span class="nm">' + (f ? '<span class="tick" aria-hidden="true">&#10003;</span>' : '') +
           '<span style="display:flex;flex-direction:column;gap:2px">' + esc(s.label) + '<span class="file">' + (f ? esc(f.name) + ' \u00b7 ' + mb(f.size) : '.' + esc(s.ext) + ' \u00b7 drop it here or') + '</span></span></span>' +
           (up ? '' : '<button class="outline" data-act="pick" data-i="' + i + '">' + (f ? 'Replace' : 'Add file') + '</button>') + '</div>';
-        if (up) h += '<div class="upbar"><div class="upfill" id="upfill-' + i + '" style="width:' + pctOf(up.done[i] || 0, f ? f.size : 1) + '%"></div><span class="uptext" id="uptext-' + i + '">' + upText(up, i, f) + '</span></div>';
+        if (up && !s.link) h += '<div class="upbar"><div class="upfill" id="upfill-' + i + '" style="width:' + pctOf(up.done[i] || 0, f ? f.size : 1) + '%"></div><span class="uptext" id="uptext-' + i + '">' + upText(up, i, f) + '</span></div>';
       });
       if (!noFiles && !U.noteOpen) h += '<button class="link" data-act="note">+ Add a note</button>';
       if (noFiles || U.noteOpen) {
@@ -180,7 +187,10 @@
     let h = '';
     const files = t.files || [];
     if (!files.length) h += '<div class="slot"><span class="nm" style="font-weight:400;color:var(--stone)">Files not found on Drive yet.</span></div>';
-    h += files.map((f) => '<div class="filebox">' +
+    h += files.map((f) => f.link ? '<div class="filebox">' +
+      (f.preview ? '<iframe class="vid" src="' + esc(f.preview) + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="' + esc(f.label) + '"></iframe>' : '') +
+      '<div class="slot filled"><span class="nm" style="min-width:0"><span style="display:flex;flex-direction:column;gap:2px;min-width:0">' + esc(f.label) + '<span class="file" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(f.link) + '</span></span></span>' +
+      '<a class="outline linkbtn" href="' + esc(f.link) + '" target="_blank" rel="noopener">Open link</a></div></div>' : '<div class="filebox">' +
       (f.thumb ? '<a href="' + esc(f.view) + '" target="_blank" rel="noopener"><img class="thumb" src="' + esc(f.thumb) + '" alt="' + esc(f.label) + '" loading="lazy"></a>' : '') +
       (f.preview ? '<iframe class="vid" src="' + esc(f.preview) + '" allow="autoplay" title="' + esc(f.label) + '"></iframe>' : '') +
       '<div class="slot filled"><span class="nm"><span style="display:flex;flex-direction:column;gap:2px">' + esc(f.label) + '<span class="file">' + esc(f.name) + ' \u00b7 ' + mb(f.size) + '</span></span></span>' +
@@ -243,7 +253,7 @@
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function planTasks() {
     const P = S.plan || { tasks: [] };
-    const l = P.tasks.filter((t) => U.mvMs === 'all' || t.ms === U.mvMs);
+    const l = P.tasks.filter((t) => (U.mvMs === 'all' || t.ms === U.mvMs) && (U.mvDel ? t.deleted : !t.deleted));
     return l.slice().sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999') || (a.due || '9999').localeCompare(b.due || '9999') ||
       a.id.localeCompare(b.id, undefined, { numeric: true }));
   }
@@ -309,10 +319,13 @@
     const inp = (f, lbl, ph, list) => '<label class="ef"><span class="lbl">' + lbl + '</span><input data-f="' + f + '" value="' + esc(e[f]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + (list ? ' list="' + list + '"' : '') + '></label>';
     const sel = (f, lbl, list, empty) => '<label class="ef"><span class="lbl">' + lbl + '</span><select data-f="' + f + '">' + opt(list, e[f], empty) + '</select></label>';
     const date = (f, lbl) => '<label class="ef"><span class="lbl">' + lbl + '</span><input type="date" data-f="' + f + '" value="' + esc(e[f]) + '"></label>';
-    const saveBtn = U.saving ? '<button class="btn primary filling" id="busybtn" disabled>' + fill(isNew ? 'Creating' : 'Saving') + '</button>'
+    const saveBtn = U.saving ? '<button class="btn primary filling" id="busybtn" disabled>' + fill(U.saving === 'del' ? (e.deleted ? 'Restoring' : 'Deleting') : isNew ? 'Creating' : 'Saving') + '</button>'
+      : e.deleted ? '<button class="btn primary" data-act="mvrestore">Restore task</button>'
       : '<button class="btn primary" data-act="mvsave">' + (isNew ? 'Create task' : 'Save') + '</button>';
+    const delBtn = isNew || e.deleted || U.saving ? '' : '<button class="outline danger" style="margin-left:auto" data-act="mvdelete">' + (U.delArm === e.id ? 'Click again to delete' : 'Delete task') + '</button>';
     return '<div class="glass editor pin z" role="dialog" aria-label="' + (isNew ? 'New task' : 'Edit task') + '">' +
       '<div class="head"><h2>' + (isNew ? 'New task' : esc(e.name || 'Task')) + '</h2>' + (isNew ? '' : pill(e.status)) + '</div>' +
+      (e.deleted ? '<span class="muted" style="font-size:13px;color:var(--orange)">Deleted ' + esc(e.deletedNote) + '. It stays in the sheet and can be restored.</span>' : '') +
       (isNew ? '' : '<span class="muted" style="font-size:13px;font-family:var(--mono)">' + esc(e.id) + (e.asset ? ' · ' + esc(e.asset) : '') + ' · v' + String(e.version).padStart(2, '0') + (e.updated ? ' · updated ' + esc(e.updated) : '') + '</span>') +
       '<div class="eg">' +
         (isNew ? inp('id', 'ID', 'e.g. 2.5') + inp('name', 'TASK', 'What has to be done') : inp('name', 'TASK', 'What has to be done').replace('class="ef"', 'class="ef wide"')) +
@@ -327,12 +340,12 @@
       '</div>' +
       '<datalist id="mvteam">' + P.team.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
       '<datalist id="mvareas">' + P.areas.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
-      '<div style="display:flex;gap:14px;align-items:center">' + saveBtn + (U.saving ? '' : '<button class="link" data-act="mvclose">Cancel</button>') + '</div></div>';
+      '<div style="display:flex;gap:14px;align-items:center">' + saveBtn + (U.saving ? '' : '<button class="link" data-act="mvclose">Cancel</button>') + delBtn + '</div></div>';
   }
 
   function managerScreen() {
     const P = S.plan || { tasks: [], milestones: [] }, l = planTasks();
-    const used = P.milestones.filter((m) => P.tasks.some((t) => t.ms === m.id));
+    const used = P.milestones.filter((m) => P.tasks.some((t) => t.ms === m.id && !t.deleted)), nDel = P.tasks.filter((t) => t.deleted).length;
     const chips = [{ id: 'all', name: 'All' }].concat(used).map((m) => '<button class="mchip' + (U.mvMs === m.id ? ' on' : '') + '" data-act="mvms" data-ms="' + esc(m.id) + '">' + esc(m.name) + '</button>').join('');
     const counts = {};
     l.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
@@ -340,7 +353,8 @@
     return '<div class="grid">' + nav() + '<div style="grid-column:1/span 12;height:18px"></div>' +
       '<h1 class="z" style="grid-column:1/span 7;margin-top:0;font-size:72px" aria-label="Manager view">' + kinetic('Manager view') + '</h1>' +
       '<div class="mvbar z" style="grid-column:1/span 12"><button class="btn primary" data-act="mvnew">+ New task</button><span class="mchips">' + chips + '</span>' +
-      '<span class="muted" style="font-size:13px;font-family:var(--mono)">' + esc(sum).toUpperCase() + '</span></div>' +
+      '<span class="muted" style="font-size:13px;font-family:var(--mono);flex:1">' + esc(sum).toUpperCase() + '</span>' +
+      (nDel ? '<button class="mchip' + (U.mvDel ? ' on' : '') + '" data-act="mvdel">' + (U.mvDel ? 'Hide deleted' : 'Deleted (' + nDel + ')') + '</button>' : '') + '</div>' +
       '<div class="z" style="grid-column:1/span 12">' + ganttHtml(l) + '</div>' +
       (U.edit ? editorHtml() : '') + '</div>';
   }
@@ -356,6 +370,15 @@
     const data = await runKeep('saveTask', { task, isNew }, isNew ? 'Creating' : 'Saving');
     U.saving = false;
     if (data) { U.edit = null; U.editNew = false; }
+    render();
+  }
+
+  async function deleteTask(restore) {
+    const e = U.edit;
+    U.saving = 'del'; U.delArm = null; render();
+    const data = await run('deleteTask', { id: e.id, restore }, restore ? 'Restoring' : 'Deleting');
+    U.saving = false;
+    if (data) { U.edit = null; U.mvDel = false; }
     render();
   }
 
@@ -455,6 +478,20 @@
 
   function signedOut() { API.store.set('bucky.token', null); S = { me: null }; lastKey = ''; lastScreenKey = ''; }
 
+  const validLink = (v) => /^https?:\/\/[^\s]+\.[^\s]+$/i.test(String(v || '').trim());
+  const missingOf = (t) => { const p = U.picks[t.id] || {}; return t.slots.filter((s, i) => !p[i] || (s.link && !validLink(p[i].link))).length; };
+  // typing a link updates the slot tick and the publish button without redrawing (keeps the cursor)
+  function onLink(t, i, v) {
+    (U.picks[t.id] = U.picks[t.id] || {})[i] = { link: v };
+    const ok = validLink(v), slot = $('slot-' + i), btn = $('publish');
+    if (slot) { slot.classList.toggle('filled', ok); slot.querySelector('.tick').style.visibility = ok ? '' : 'hidden'; }
+    if (btn && btn.dataset.nofiles !== '1') {
+      const m = missingOf(t);
+      btn.disabled = m > 0 || !!U.busy;
+      btn.textContent = m ? plural(m, 'file missing', 'files missing') : (t.status === 'Pending review' ? 'Send again' : 'Publish for review');
+    }
+  }
+
   async function publish(t) {
     const picks = U.picks[t.id] || {};
     U.busy = t.id; U.sel = t.id; U.busyAct = 'publish'; U.prog = 0; U.progText = 'Sending'; render();
@@ -463,11 +500,11 @@
     let begun;
     try {
       begun = await API.call('beginUpload', { taskId: t.id, origin: location.origin,
-        files: t.slots.map((s, i) => ({ i, name: picks[i].name, size: picks[i].size, type: picks[i].type })) });
+        files: t.slots.map((s, i) => (s.link ? { i, link: picks[i].link.trim() } : { i, name: picks[i].name, size: picks[i].size, type: picks[i].type })) });
     } catch (e) {
       clearInterval(progT); U.busy = null; U.busyAct = null; if (e.signedOut) signedOut(); else toast({ text: e.message, kind: 'error' }); render(); return;
     }
-    U.up = { task: t.id, done: {}, total: t.slots.reduce((a, s, i) => a + picks[i].size, 0) };
+    U.up = { task: t.id, done: {}, total: t.slots.reduce((a, s, i) => a + (s.link ? 0 : picks[i].size), 0) };
     setProg(5, 'Uploading');
     render();
     try {
@@ -513,6 +550,7 @@
 
   function setPick(t, i, f) {
     const s = t.slots[i];
+    if (s.link) return;
     if (s.ext && !f.name.toLowerCase().endsWith('.' + s.ext)) { toast({ text: s.label + ' needs a .' + s.ext + ' file.', kind: 'error' }); return; }
     if (s.ext === 'mp4' && f.size > 8 * 1024 * 1024) { toast({ text: 'Videos must be under 8 MB so Discord can show them.', kind: 'error' }); return; }
     if (!f.size) { toast({ text: 'That file is empty.', kind: 'error' }); return; }
@@ -537,6 +575,12 @@
       case 'mvopen': { const x = (S.plan.tasks || []).find((k) => k.id === el.dataset.id); if (x) { U.edit = Object.assign({}, x); U.editNew = false; render(); } } break;
       case 'mvclose': U.edit = null; U.editNew = false; render(); break;
       case 'mvsave': saveTask(); break;
+      case 'mvdel': U.mvDel = !U.mvDel; U.edit = null; render(); break;
+      case 'mvrestore': deleteTask(true); break;
+      case 'mvdelete':
+        if (U.delArm === U.edit.id) deleteTask(false);
+        else { U.delArm = U.edit.id; render(); setTimeout(() => { if (U.delArm) { U.delArm = null; render(); } }, 3000); }
+        break;
       case 'pick': pickFile(t, Number(el.dataset.i)); break;
       case 'note': U.noteOpen = true; render(); $('note').focus(); break;
       case 'resend': U.resend = t.id; U.note = t.note || ''; U.noteOpen = !!t.note; render(); break;
@@ -614,6 +658,7 @@
     // typing must not re-render (focus would be lost), so update buttons in place
     scr.addEventListener('input', (e) => {
       if (e.target.dataset && e.target.dataset.f && U.edit) { U.edit[e.target.dataset.f] = e.target.value; return; }
+      if (e.target.dataset && e.target.dataset.link != null) { const t = current(); if (t) onLink(t, Number(e.target.dataset.link), e.target.value); return; }
       if (e.target.id === 'note') {
         U.note = e.target.value;
         const p = $('publish');

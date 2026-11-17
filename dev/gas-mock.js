@@ -32,7 +32,8 @@
           setNumberFormat: () => {}, setFormulaR1C1: () => {}, getFormulasR1C1: () => Array.from({ length: nr }, () => Array.from({ length: nc }, () => ''))
         };
       },
-      appendRow: (arr) => { rows().push(arr.map(String)); persist(); }
+      appendRow: (arr) => { rows().push(arr.map(String)); persist(); },
+      hideRows: (r) => { (G.mockHidden = G.mockHidden || {})[name + r] = true; }, showRows: (r) => { if (G.mockHidden) delete G.mockHidden[name + r]; }
     };
     return sh;
   }
@@ -64,7 +65,7 @@
   const kids = (pid, folderOnly) => Object.values(drive.items).filter((x) => x.parent === pid && !x.trashed && (folderOnly == null || !!x.folder === folderOnly));
   const iter = (arr) => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
   function fileObj(x) {
-    return { getId: () => x.id, getName: () => x.name, getMimeType: () => x.mime || 'application/octet-stream', getBlob: () => { const bl = { n: x.name, setName: (nm) => { bl.n = nm; return bl; }, getName: () => bl.n }; return bl; }, getSize: () => x.size || 0,
+    return { getId: () => x.id, getName: () => x.name, getMimeType: () => x.mime || 'application/octet-stream', getBlob: () => { const bl = { n: x.name, setName: (nm) => { bl.n = nm; return bl; }, getName: () => bl.n, getDataAsString: () => x.content || '' }; return bl; }, setContent: (c) => { x.content = c; x.size = c.length; saveDrive(); }, getSize: () => x.size || 0,
       setSharing: () => { x.shared = true; saveDrive(); }, setTrashed: (v) => { x.trashed = !!v; saveDrive(); },
       makeCopy: (name, dst) => { const id = newId(); drive.items[id] = Object.assign({}, x, { id, name, parent: dst.getId(), shared: false }); saveDrive(); return fileObj(drive.items[id]); } };
   }
@@ -73,6 +74,7 @@
       getFoldersByName: (n) => iter(kids(x.id, true).filter((k) => k.name === n).map(folderObj)),
       getFilesByName: (n) => iter(kids(x.id, false).filter((k) => k.name === n).map(fileObj)),
       getFiles: () => iter(kids(x.id, false).map(fileObj)),
+      createFile: (n, c, mime) => { const id = newId(); drive.items[id] = { id, name: n, parent: x.id, content: c, size: c.length, mime: mime || 'text/plain' }; saveDrive(); return fileObj(drive.items[id]); },
       createFolder: (n) => { const id = newId(); drive.items[id] = { id, name: n, folder: true, parent: x.id }; saveDrive(); return folderObj(drive.items[id]); },
       setSharing: () => { x.shared = true; saveDrive(); } };
   }

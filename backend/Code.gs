@@ -16,7 +16,7 @@
  *   Drive root folder ID     the ID of BuckyAway2026 (from its URL)
  */
 
-var VERSION = '1.6.0';
+var VERSION = '1.7.0';
 var HOOK_RE = /^https:\/\/(discord\.com|discordapp\.com|canary\.discord\.com|ptb\.discord\.com)\/api\/webhooks\//;
 var LEADS = ['eduardo', 'luna'];
 var TOKEN_DAYS = 30;
@@ -26,7 +26,7 @@ var COL = {
   id: 'ID', milestone: 'Milestone', name: 'Task', prefix: 'Prefix', asset: 'Asset', dod: 'Definition of done',
   owners: 'Owner', approvers: 'Approver', file1: 'File 1', file2: 'File 2', file3: 'File 3', labels: 'File labels',
   deps: 'Depends on', due: 'Due', status: 'Status', version: 'Version', feedback: 'Feedback', note: 'Note', updated: 'Updated',
-  area: 'Area', thread: 'Discord thread'
+  area: 'Area', thread: 'Discord thread', deleted: 'Deleted'
 };
 var MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB hard stop, the team limit is 500 MB
 var MAX_VIDEO = 8 * 1024 * 1024;
@@ -87,6 +87,7 @@ function handle(req) {
     case 'retake': return withLock(function () { return review(me, req, false); });
     case 'files': var FD = loadData(); return { files: filesFor(FD, FD.task(req.taskId)) };
     case 'saveTask': return withLock(function () { return saveTask(me, req); });
+    case 'deleteTask': return withLock(function () { return deleteTask(me, req); });
   }
   fail('Unknown action: ' + a);
 }
@@ -162,7 +163,8 @@ function loadData() {
     var ms = msById[r[COL.milestone]];
     var labels = splitNames(r[COL.labels]);
     var slots = [COL.file1, COL.file2, COL.file3].map(function (c) { return r[c]; }).filter(String).map(function (type, i) {
-      return { label: labels[i] || '', type: type, ext: types[type] || '' };
+      var ext = types[type] || '';
+      return { label: labels[i] || '', type: type, ext: ext, link: ext === 'url' };
     });
     return {
       id: r[COL.id], ms: r[COL.milestone], name: r[COL.name], prefix: r[COL.prefix], asset: r[COL.asset], dod: r[COL.dod],
@@ -171,15 +173,17 @@ function loadData() {
       startDate: parseDate(r['Start'], ms && ms.start ? ms.start.getFullYear() : null, ms && ms.start ? ms.start.getMonth() : null),
       status: r[COL.status] || STATUS.todo, version: parseInt(r[COL.version] || '0', 10) || 0,
       feedback: r[COL.feedback] || '', note: r[COL.note] || '', row: r._row, area: r[COL.area] || '', thread: r[COL.thread] || '',
-      raw: r
+      deleted: !!String(r[COL.deleted] || '').trim(), raw: r
     };
   });
+  var all = tasks;
+  tasks = all.filter(function (t) { return !t.deleted; });   // deleted tasks stay in the sheet but leave the site
   var log = tab('Log').rows.filter(function (r) { return r['Task ID']; }).map(function (r) {
     return { when: r['Time'], task: r['Task ID'], version: parseInt(r['Version'] || '0', 10) || 0, who: r['Who'],
       from: r['From status'], to: r['To status'], text: r['Note or feedback'] };
   });
   return {
-    team: team, tasks: tasks, milestones: milestones, naming: naming, types: types, channels: channels, log: log, head: T.head, sheet: T.sheet,
+    team: team, tasks: tasks, all: all, milestones: milestones, naming: naming, types: types, channels: channels, log: log, head: T.head, sheet: T.sheet,
     task: function (id) { for (var i = 0; i < tasks.length; i++) if (tasks[i].id === id) return tasks[i]; fail('No task ' + id + ' in the sheet.'); }
   };
 }
@@ -419,8 +423,23 @@ function share(f) {
   try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { console.warn('share failed', e); }
 }
 
+// A "Link" deliverable is saved on Drive as a small .url shortcut file (opens in a browser on Windows)
+function urlFile(link) { return '[InternetShortcut]\r\nURL=' + link + '\r\n'; }
+function readLink(f) {
+  try { var m = f.getBlob().getDataAsString().match(/URL=(\S+)/); return m ? m[1] : ''; } catch (e) { return ''; }
+}
+function youtubeId(link) {
+  var m = String(link).match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : '';
+}
+
 function fileInfo(f) {
   var id = f.getId(), mime = f.getMimeType();
+  if (/\.url$/i.test(f.getName())) {
+    var link = readLink(f), yt = youtubeId(link);
+    return { id: id, name: f.getName(), mime: 'text/uri-list', size: 0, link: link, view: link, download: '',
+      preview: yt ? 'https://www.youtube-nocookie.com/embed/' + yt : '', thumb: yt ? 'https://i.ytimg.com/vi/' + yt + '/hqdefault.jpg' : '' };
+  }
   return { id: id, name: f.getName(), mime: mime, size: f.getSize(),
     view: 'https://drive.google.com/file/d/' + id + '/view',
     download: 'https://drive.google.com/uc?export=download&id=' + id,
@@ -475,6 +494,7 @@ var DISCORD_MAX = 9 * 1024 * 1024;
 function previews(files) {
   var blobs = [], embeds = [], links = [], used = 0;
   (files || []).forEach(function (f) {
+    if (/\.url$/i.test(f.getName())) { var ln = readLink(f); if (ln) links.push(ln); return; }
     var mime = f.getMimeType(), size = f.getSize(), id = f.getId();
     var isImg = /^image\//.test(mime), isVid = /^video\//.test(mime);
     if (!isImg && !isVid) return;
@@ -565,6 +585,13 @@ function beginUpload(me, req) {
   var uploads = files.map(function (f) {
     var s = t.slots[f.i];
     if (!s) fail('Unknown file slot.');
+    if (s.link) {   // a link: save it as a .url file, nothing to upload
+      var link = String(f.link || '').trim();
+      if (!/^https?:\/\/[^\s]+\.[^\s]+$/i.test(link)) fail(slotLabel(s) + ' needs a link that starts with https://');
+      var nm = names[f.i], ex = dir.getFilesByName(nm);
+      if (ex.hasNext()) ex.next().setContent(urlFile(link)); else dir.createFile(nm, urlFile(link), 'text/plain');
+      return null;
+    }
     if (s.ext && String(f.name || '').toLowerCase().slice(-(s.ext.length + 1)) !== '.' + s.ext) fail(slotLabel(s) + ' needs a .' + s.ext + ' file.');
     if (!(f.size > 0)) fail(slotLabel(s) + ' is empty.');
     if (f.size > MAX_BYTES) fail(slotLabel(s) + ' is over 2 GB.');
@@ -584,7 +611,7 @@ function beginUpload(me, req) {
     if (res.getResponseCode() >= 300) fail('Drive refused the upload: ' + res.getContentText().slice(0, 200));
     var loc = res.getHeaders()['Location'] || res.getHeaders()['location'];
     return { i: f.i, name: name, url: loc };
-  });
+  }).filter(Boolean);
   return { version: v, again: again, uploads: uploads };
 }
 
@@ -663,6 +690,7 @@ function historyText(e) {
   var v = vtag(e.version);
   if (!e.from && e.text === 'Created in the Manager View') return e.who + ' created the task';
   if (e.text === 'Changed in the Manager View') return e.who + ' set it to ' + e.to;
+  if (/^(Deleted|Restored) in the Manager View$/.test(e.text)) return e.who + ' ' + e.text.split(' ')[0].toLowerCase() + ' the task';
   if (e.from === STATUS.todo && e.to === STATUS.prog) return e.who + ' started the task';
   if (e.from === STATUS.prog && e.to === STATUS.todo) return e.who + ' moved it back to To do';
   if (e.from === STATUS.review && e.to === STATUS.review) return e.who + ' re-sent ' + v;
@@ -683,13 +711,14 @@ function isoDay(d) { var pad = function (n) { return (n < 10 ? '0' : '') + n; };
 
 function plan(D) {
   var areas = {};
-  var tasks = D.tasks.map(function (t) {
+  var tasks = D.all.map(function (t) {
     var r = t.raw;
     if (t.area) areas[t.area] = 1;
     return { id: t.id, ms: t.ms, name: t.name, area: t.area, prefix: t.prefix, asset: t.asset, dod: t.dod,
       owners: t.owners.join(', '), support: r['Support'] || '', approvers: t.approvers.join(', '), output: r['Output'] || '',
       file1: r[COL.file1] || '', file2: r[COL.file2] || '', file3: r[COL.file3] || '', labels: r[COL.labels] || '', deps: t.deps.join(', '),
-      start: isoDay(t.startDate), due: isoDay(t.dueDate), status: t.status, version: t.version, updated: r[COL.updated] || '' };
+      start: isoDay(t.startDate), due: isoDay(t.dueDate), status: t.status, version: t.version, updated: r[COL.updated] || '',
+      deleted: t.deleted, deletedNote: r[COL.deleted] || '' };
   });
   return { tasks: tasks, team: Object.keys(D.team).map(function (k) { return D.team[k].name; }),
     types: Object.keys(D.types), prefixes: Object.keys(D.naming), areas: Object.keys(areas),
@@ -707,8 +736,8 @@ function saveTask(me, req) {
   if (!id) fail('Give the task an ID.');
   if (!/^[0-9A-Za-z._-]+$/.test(id)) fail('IDs can only use letters, numbers and dots, like 2.5.');
   if (!String(x.name || '').trim()) fail('Give the task a name.');
-  var old = D.tasks.filter(function (t) { return t.id === id; })[0];
-  if (isNew && old) fail('There is already a task ' + id + ' (' + old.name + ').');
+  var old = D.all.filter(function (t) { return t.id === id; })[0];
+  if (isNew && old) fail('There is already a task ' + id + ' (' + old.name + (old.deleted ? ', deleted' : '') + '). Pick another ID.');
   if (!isNew && !old) fail('Task ' + id + ' is not in the sheet anymore.');
   var statuses = Object.keys(STATUS).map(function (k) { return STATUS[k]; });
   var status = x.status || STATUS.todo;
@@ -734,6 +763,25 @@ function saveTask(me, req) {
   if (isNew) addLog({ id: id }, 0, who, '', status, 'Created in the Manager View');
   else if (changed) addLog(old, old.version, who, old.status, status, 'Changed in the Manager View');
   return done(me, { kind: 'info', mention: '', text: (isNew ? 'Created ' : 'Saved ') + values[COL.name] + '.' });
+}
+
+/** Soft delete: the row stays in Tasks with "Deleted" filled in, the Gantt row gets hidden. Restore undoes both. */
+function deleteTask(me, req) {
+  if (!isManager(me)) fail('Only the manager can delete tasks.');
+  var D = loadData(), id = String(req.id || ''), restore = !!req.restore;
+  var t = D.all.filter(function (x) { return x.id === id; })[0];
+  if (!t) fail('Task ' + id + ' is not in the sheet anymore.');
+  if (restore !== t.deleted) fail(t.name + (restore ? ' is not deleted.' : ' is already deleted.'));
+  var who = D.team[me].name;
+  var T = tab('Tasks');
+  if (T.head.indexOf(COL.deleted) === -1) T.sheet.getRange(1, T.head.length + 1).setValue(COL.deleted);
+  writeRow('Tasks', id, objOf(COL.deleted, restore ? '' : stamp() + ' by ' + who), false);
+  try {
+    var G = tab(GANTT), gi = G.head.indexOf('ID');
+    G.rows.forEach(function (r) { if (r[G.head[gi]] === id) { if (restore) G.sheet.showRows(r._row); else G.sheet.hideRows(r._row); } });
+  } catch (e) { console.warn('Gantt hide failed', e); }
+  addLog(t, t.version, who, t.status, t.status, restore ? 'Restored in the Manager View' : 'Deleted in the Manager View');
+  return done(me, { kind: 'info', mention: '', text: (restore ? 'Restored ' : 'Deleted ') + t.name + '.' });
 }
 
 function state(me) {
@@ -765,7 +813,7 @@ function state(me) {
       dueIso: t.dueDate ? t.dueDate.getTime() : 0, startIso: t.startDate ? t.startDate.getTime() : 0, version: t.version, vtag: vtag(t.version),
       owners: t.owners.join(' & '), reviewers: reviewers(t).map(function (k) { return D.team[k] ? D.team[k].name : k; }),
       feedback: fb.text, feedbackGif: fb.gif, retakeBy: retakeBy, note: nt.text, noteGif: nt.gif,
-      slots: t.slots.map(function (s) { return { label: slotLabel(s), ext: s.ext }; }),
+      slots: t.slots.map(function (s) { return { label: slotLabel(s), ext: s.ext, link: s.link }; }),
       blockers: blockers(D, t).map(function (b) { return b.name; }),
       log: hist.map(function (e) { return { when: e.when, text: historyText(e) }; }),
       mine: mine, inQueue: inQueue, files: inQueue || (mine && t.status === STATUS.review) ? filesFor(D, t) : null

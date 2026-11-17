@@ -213,3 +213,45 @@ console.log('backend: gantt sync good');
   assert.ok(mineT.files[0].thumb, 'with an image preview');
   console.log('backend: previews good');
 }
+
+// Links as deliverables, and soft delete
+{
+  login('eduardojosereyesperez@gmail.com');
+  ok('saveTask', { task: { id: '5.4', name: 'Sandbox scene', prefix: 'LVL', owners: 'Eduardo', approvers: 'Luna', file1: 'Link', labels: 'Video', status: 'To do', start: '2026-11-09', due: '2026-11-20' } });
+  let st = ok('start', { taskId: '5.4' }).state;
+  assert.equal(task(st, '5.4').slots[0].link, true, 'link slot');
+  bad('beginUpload', { taskId: '5.4', files: [{ i: 0, link: 'not a link' }] }, /needs a link/);
+  const b = ok('beginUpload', { taskId: '5.4', files: [{ i: 0, link: 'https://youtu.be/dQw4w9WgXcQ' }] });
+  assert.equal(b.uploads.length, 0, 'nothing to upload for a link');
+  const n0 = mockDiscord.length;
+  const d = ok('finishUpload', { taskId: '5.4', version: b.version, note: '' });
+  const m = mockDiscord[mockDiscord.length - 1];
+  assert.equal(mockDiscord.length, n0 + 1);
+  assert.match(m.content, /https:\/\/youtu\.be\/dQw4w9WgXcQ/, 'link in the Discord message');
+  const f = task(d.state, '5.4').files[0];
+  assert.equal(f.link, 'https://youtu.be/dQw4w9WgXcQ');
+  assert.match(f.preview, /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ/);
+  // Luna reviews it and sees the link
+  const stL = login('lunaghiso@gmail.com');
+  assert.equal(task(stL, '5.4').files[0].link, 'https://youtu.be/dQw4w9WgXcQ');
+  ok('approve', { taskId: '5.4', comment: '' });
+  console.log('backend: links good');
+
+  // soft delete
+  bad('deleteTask', { id: '4.2' }, /Only the manager/);
+  login('eduardojosereyesperez@gmail.com');
+  let dd = ok('deleteTask', { id: '4.2' });
+  const [h, r] = taskRow('4.2');
+  assert.match(r[h.indexOf('Deleted')], /by Eduardo/, 'marked, not removed');
+  assert.ok(dd.state.plan.tasks.find((t) => t.id === '4.2').deleted, 'plan shows it as deleted');
+  bad('deleteTask', { id: '4.2' }, /already deleted/);
+  bad('saveTask', { isNew: true, task: { id: '4.2', name: 'Reuse' } }, /deleted/);
+  const stG = login('guillemrejon@gmail.com');
+  assert.ok(!task(stG, '4.2'), 'gone from Guillem\'s tasks');
+  bad('start', { taskId: '4.2' }, /No task 4.2/);
+  login('eduardojosereyesperez@gmail.com');
+  dd = ok('deleteTask', { id: '4.2', restore: true });
+  assert.equal(taskRow('4.2')[1][h.indexOf('Deleted')], '');
+  assert.ok(task(login('guillemrejon@gmail.com'), '4.2'), 'back after restore');
+  console.log('backend: soft delete good');
+}
